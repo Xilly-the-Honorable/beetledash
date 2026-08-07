@@ -1,0 +1,21 @@
+# Arduino / PlatformIO build output
+build/
+*.bin
+*.elf
+*.hex
+*.map
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Arduino IDE
+*.tmp
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Secrets (if you ever move WiFi creds out of the sketch)
+secrets.h
