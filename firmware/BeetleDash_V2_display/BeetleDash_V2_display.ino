@@ -22,39 +22,23 @@
 #include "Config.h"          // all tunables (pins, calibration, AP, timezone)
 #include "LVGL_Driver.h"     // pulls in Display_ST7701 / Touch_CST820 / TCA9554PWR / I2C_Driver
 #include "Sensors.h"         // core-0 sensor/WiFi task + GaugeData snapshot
+#include "Gauge_UI.h"        // five swipeable gauge screens + page dots
 
-// ================= Milestone 2: sensors ported =================
-// Test screen: title + live touch readout. Sensor values on Serial + phone /data.
+// ================= Milestone 3: UI shell =================
+// Five swipeable gauge screens driven by a dummy data generator.
+// M4 swaps the provider to the live GaugeData snapshot.
 
-static lv_obj_t *touchLabel = NULL;
-
-static void touch_probe_cb(lv_event_t *e)
+static void dummy_provider(GaugeData *d)
 {
-  lv_indev_t *indev = lv_indev_get_act();
-  if (!indev || !touchLabel) return;
-  lv_point_t p;
-  lv_indev_get_point(indev, &p);
-  lv_label_set_text_fmt(touchLabel, "touch  x=%d  y=%d", p.x, p.y);
-}
-
-static void make_test_screen(void)
-{
-  lv_obj_t *scr = lv_scr_act();
-  lv_obj_set_style_bg_color(scr, lv_color_hex(0x0b0f14), LV_PART_MAIN);
-
-  lv_obj_t *title = lv_label_create(scr);
-  lv_label_set_text(title, "BeetleDash V2");
-  lv_obj_set_style_text_color(title, lv_color_hex(0xe8eef5), LV_PART_MAIN);
-  lv_obj_set_style_text_font(title, &lv_font_montserrat_16, LV_PART_MAIN);
-  lv_obj_align(title, LV_ALIGN_CENTER, 0, -20);
-
-  touchLabel = lv_label_create(scr);
-  lv_label_set_text(touchLabel, "touch the screen...");
-  lv_obj_set_style_text_color(touchLabel, lv_color_hex(0x7d8ea0), LV_PART_MAIN);
-  lv_obj_align(touchLabel, LV_ALIGN_CENTER, 0, 20);
-
-  lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(scr, touch_probe_cb, LV_EVENT_PRESSING, NULL);
+  float t = millis() / 1000.0f;
+  d->fuelPct    = 50.0f + 50.0f * sinf(t * 0.30f);
+  d->battV      = 12.8f + 2.0f * sinf(t * 0.20f);
+  d->speedMph   = 30.0f + 30.0f * sinf(t * 0.15f);
+  d->headingDeg = fmodf(t * 20.0f, 360.0f);
+  d->sats       = 7;
+  d->fix        = true;
+  strcpy(d->clock, "12:34");
+  strcpy(d->magName, "demo");
 }
 
 void setup()
@@ -71,7 +55,7 @@ void setup()
 
   Sensors_Start();             // sensors + WiFi AP on core 0; LVGL owns core 1
 
-  make_test_screen();
+  Gauge_UI_Init(dummy_provider);
   Serial.println("Panel up.");
 }
 
