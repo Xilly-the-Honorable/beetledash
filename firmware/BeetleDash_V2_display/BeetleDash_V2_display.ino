@@ -19,10 +19,12 @@
  * ------------------------------------------------------------
  */
 
+#include "Config.h"          // all tunables (pins, calibration, AP, timezone)
 #include "LVGL_Driver.h"     // pulls in Display_ST7701 / Touch_CST820 / TCA9554PWR / I2C_Driver
+#include "Sensors.h"         // core-0 sensor/WiFi task + GaugeData snapshot
 
-// ================= Milestone 1: panel bring-up =================
-// Simple test screen: title + live touch readout. Sensors come in M2.
+// ================= Milestone 2: sensors ported =================
+// Test screen: title + live touch readout. Sensor values on Serial + phone /data.
 
 static lv_obj_t *touchLabel = NULL;
 
@@ -66,6 +68,8 @@ void setup()
   Set_EXIO(EXIO_PIN8, Low);
   LCD_Init();                  // ST7701 reset + init + touch + backlight
   Lvgl_Init();
+
+  Sensors_Start();             // sensors + WiFi AP on core 0; LVGL owns core 1
 
   make_test_screen();
   Serial.println("Panel up.");
