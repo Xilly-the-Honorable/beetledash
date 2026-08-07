@@ -24,10 +24,11 @@
 #include "Sensors.h"         // core-0 sensor/WiFi task + GaugeData snapshot
 #include "Gauge_UI.h"        // five swipeable gauge screens + page dots
 
-// ================= Milestone 3: UI shell =================
-// Five swipeable gauge screens driven by a dummy data generator.
-// M4 swaps the provider to the live GaugeData snapshot.
+// Set to 1 to drive the UI with sweeping demo values instead of real sensors
+// (handy on the bench with nothing wired up).
+#define UI_DEMO_MODE 0
 
+#if UI_DEMO_MODE
 static void dummy_provider(GaugeData *d)
 {
   float t = millis() / 1000.0f;
@@ -40,6 +41,7 @@ static void dummy_provider(GaugeData *d)
   strcpy(d->clock, "12:34");
   strcpy(d->magName, "demo");
 }
+#endif
 
 void setup()
 {
@@ -55,7 +57,11 @@ void setup()
 
   Sensors_Start();             // sensors + WiFi AP on core 0; LVGL owns core 1
 
+#if UI_DEMO_MODE
   Gauge_UI_Init(dummy_provider);
+#else
+  Gauge_UI_Init(Gauge_GetData);    // live sensor snapshot from core 0
+#endif
   Serial.println("Panel up.");
 }
 
