@@ -55,6 +55,15 @@ static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, uint32_t co
   return l;
 }
 
+// Blow a value label up 2x around its center — biggest built-in font is 48 pt,
+// which is too small to glance at from the driver's seat.
+static void make_huge(lv_obj_t *label)
+{
+  lv_obj_set_style_transform_pivot_x(label, lv_pct(50), 0);
+  lv_obj_set_style_transform_pivot_y(label, lv_pct(50), 0);
+  lv_obj_set_style_transform_zoom(label, 512, 0);
+}
+
 static uint32_t volt_color(float v)
 {
   if (v < VOLT_LOW_BELOW)  return COL_RED;
@@ -96,15 +105,17 @@ static void build_fuel(lv_obj_t *tile)
   make_label(tile, &lv_font_montserrat_20, COL_FAINT, LV_ALIGN_CENTER, 105, 148, "F");
 
   fuelValue = make_label(tile, &lv_font_montserrat_48, COL_TEXT, LV_ALIGN_CENTER, 0, -10, "--");
-  make_label(tile, &lv_font_montserrat_20, COL_MUTED, LV_ALIGN_CENTER, 0, 34, "%");
+  make_huge(fuelValue);
+  make_label(tile, &lv_font_montserrat_20, COL_MUTED, LV_ALIGN_CENTER, 0, 64, "%");
 }
 
 static void build_speed(lv_obj_t *tile)
 {
   make_label(tile, &lv_font_montserrat_20, COL_MUTED, LV_ALIGN_TOP_MID, 0, 56, "SPEED");
-  speedValue = make_label(tile, &lv_font_montserrat_48, COL_TEXT, LV_ALIGN_CENTER, 0, -30, "--");
-  make_label(tile, &lv_font_montserrat_24, COL_MUTED, LV_ALIGN_CENTER, 0, 24, "mph");
-  speedKmh = make_label(tile, &lv_font_montserrat_20, COL_FAINT, LV_ALIGN_CENTER, 0, 60, "-- km/h");
+  speedValue = make_label(tile, &lv_font_montserrat_48, COL_TEXT, LV_ALIGN_CENTER, 0, -40, "--");
+  make_huge(speedValue);
+  make_label(tile, &lv_font_montserrat_24, COL_MUTED, LV_ALIGN_CENTER, 0, 36, "mph");
+  speedKmh = make_label(tile, &lv_font_montserrat_20, COL_FAINT, LV_ALIGN_CENTER, 0, 76, "-- km/h");
   speedSats = make_label(tile, &lv_font_montserrat_14, COL_FAINT, LV_ALIGN_BOTTOM_MID, 0, -70, "acquiring fix...");
 }
 
@@ -128,7 +139,8 @@ static void build_volts(lv_obj_t *tile)
   lv_obj_set_style_arc_rounded(voltArc, true, LV_PART_INDICATOR);
 
   voltValue = make_label(tile, &lv_font_montserrat_48, COL_TEXT, LV_ALIGN_CENTER, 0, -10, "--.-");
-  make_label(tile, &lv_font_montserrat_20, COL_MUTED, LV_ALIGN_CENTER, 0, 34, "V");
+  make_huge(voltValue);
+  make_label(tile, &lv_font_montserrat_20, COL_MUTED, LV_ALIGN_CENTER, 0, 64, "V");
   voltStatus = make_label(tile, &lv_font_montserrat_24, COL_GREEN, LV_ALIGN_CENTER, 0, 110, "");
 }
 
@@ -136,7 +148,8 @@ static void build_clock(lv_obj_t *tile)
 {
   make_label(tile, &lv_font_montserrat_20, COL_MUTED, LV_ALIGN_TOP_MID, 0, 56, "CLOCK");
   clockValue = make_label(tile, &lv_font_montserrat_48, COL_TEXT, LV_ALIGN_CENTER, 0, -10, "--:--");
-  clockSub = make_label(tile, &lv_font_montserrat_14, COL_FAINT, LV_ALIGN_CENTER, 0, 50, "waiting for GPS time");
+  make_huge(clockValue);
+  clockSub = make_label(tile, &lv_font_montserrat_14, COL_FAINT, LV_ALIGN_CENTER, 0, 75, "waiting for GPS time");
 }
 
 static void build_compass(lv_obj_t *tile)
@@ -160,7 +173,8 @@ static void build_compass(lv_obj_t *tile)
   }
 
   compassValue = make_label(tile, &lv_font_montserrat_48, COL_TEXT, LV_ALIGN_CENTER, 0, -10, "---");
-  compassCardinal = make_label(tile, &lv_font_montserrat_28, COL_MUTED, LV_ALIGN_CENTER, 0, 44, "-");
+  make_huge(compassValue);
+  compassCardinal = make_label(tile, &lv_font_montserrat_28, COL_MUTED, LV_ALIGN_CENTER, 0, 70, "-");
 }
 
 // ============================================================

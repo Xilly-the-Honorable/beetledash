@@ -15,8 +15,10 @@ static TinyGPSPlus gps;
 static WebServer server(80);
 
 static bool  adsOK = false;
-static int   magAddr = 0;          // 0 = none, 0x0D = QMC5883L, 0x1E = HMC5883L
+static int   magAddr = 0;          // 0 = none, 0x0D = QMC5883L, 0x1E = HMC5883L, 0x0E/0x0C = IST8310
+static bool  magIsIST = false;
 static float fuelPct = 0, battV = 0, headingDeg = 0, speedMph = 0;
+static float gpsCourse = -1;       // course over ground, deg true; -1 = never valid
 static int   sats = 0;
 static bool  gpsFix = false;
 static float fuelEMA = -1, voltEMA = -1;   // smoothing state
@@ -26,7 +28,7 @@ static GaugeData shared;
 static portMUX_TYPE sharedMux = portMUX_INITIALIZER_UNLOCKED;
 
 // ============================================================
-//  Magnetometer (auto-detect QMC5883L @0x0D or HMC5883L @0x1E)
+//  Magnetometer (auto-detect QMC5883L @0x0D, HMC5883L @0x1E, IST8310 @0x0E/0x0C)
 // ============================================================
 static bool i2cPresent(uint8_t addr) {
   I2C_Lock();
@@ -34,6 +36,25 @@ static bool i2cPresent(uint8_t addr) {
   bool ok = (Wire.endTransmission() == 0);
   I2C_Unlock();
   return ok;
+}
+
+static uint8_t regRead8(uint8_t addr, uint8_t reg) {
+  I2C_Lock();
+  Wire.beginTransmission(addr); Wire.write(reg); Wire.endTransmission();
+  uint8_t v = 0;
+  if (Wire.requestFrom((int)addr, 1) == 1) v = Wire.read();
+  I2C_Unlock();
+  return v;
+}
+
+static void regWrite8(uint8_t addr, uint8_t reg, uint8_t val) {
+  I2C_Lock();
+  Wire.beginTransmission(addr); Wire.write(reg); Wire.write(val); Wire.endTransmission();
+  I2C_Unlock();
+}
+
+static bool ist8310Detect(uint8_t addr) {
+  return i2cPresent(addr) && regRead8(addr, 0x00) == 0x10;   // WHO_AM_I
 }
 
 static void magInit() {
@@ -50,6 +71,12 @@ static void magInit() {
     Wire.beginTransmission(0x1E); Wire.write(0x01); Wire.write(0xA0); Wire.endTransmission(); // gain
     Wire.beginTransmission(0x1E); Wire.write(0x02); Wire.write(0x00); Wire.endTransmission(); // continuous
     I2C_Unlock();
+  } else if (ist8310Detect(0x0E) || ist8310Detect(0x0C)) {   // IST8310 (these GPS pucks vary)
+    magAddr = ist8310Detect(0x0E) ? 0x0E : 0x0C;
+    magIsIST = true;
+    regWrite8(magAddr, 0x41, 0x24);  // AVGCNTL: 16x average
+    regWrite8(magAddr, 0x42, 0xC0);  // PDCNTL: recommended pulse duration
+    regWrite8(magAddr, 0x0A, 0x01);  // CNTL1: trigger first single measurement
   } else {
     magAddr = 0;
   }
@@ -73,6 +100,16 @@ static bool magRead(int16_t &x, int16_t &y, int16_t &z) {
     z = (int16_t)((Wire.read() << 8) | Wire.read());
     y = (int16_t)((Wire.read() << 8) | Wire.read());
     I2C_Unlock();
+    return true;
+  } else if (magIsIST) {                       // IST8310: data at 0x03, X,Y,Z LSB first
+    I2C_Lock();
+    Wire.beginTransmission(magAddr); Wire.write(0x03); Wire.endTransmission();
+    if (Wire.requestFrom((int)magAddr, 6) != 6) { I2C_Unlock(); return false; }
+    x = (int16_t)(Wire.read() | (Wire.read() << 8));
+    y = (int16_t)(Wire.read() | (Wire.read() << 8));
+    z = (int16_t)(Wire.read() | (Wire.read() << 8));
+    I2C_Unlock();
+    regWrite8(magAddr, 0x0A, 0x01);            // single-shot chip: trigger the next sample
     return true;
   }
   return false;
@@ -116,9 +153,32 @@ static void updateAnalog() {
 
 static void updateGps() {
   while (Serial1.available()) gps.encode(Serial1.read());
-  if (gps.speed.isValid())     speedMph = gps.speed.mph();
-  if (gps.satellites.isValid())sats     = gps.satellites.value();
+  if (gps.speed.isValid())     speedMph  = gps.speed.mph();
+  if (gps.course.isValid())    gpsCourse = gps.course.deg();
+  if (gps.satellites.isValid())sats      = gps.satellites.value();
   gpsFix = gps.location.isValid();
+}
+
+// Smart heading: GPS course over ground while moving (accurate, needs no cal),
+// magnetometer at rest. GPS course is already true north — no declination there.
+static float smartHeading() {
+  if (gpsFix && gpsCourse >= 0 && speedMph > GPS_HEADING_MIN_MPH) return gpsCourse;
+  return headingDeg;
+}
+
+// Ask the GPS for a faster update rate at boot, for a smooth speedo.
+// NEO-M8N takes UBX CFG-RATE; the PMTK sentence is a fallback for MTK-based pucks.
+static void gpsSetRate() {
+  const uint16_t ms = GPS_RATE_MS;
+  uint8_t ubx[] = { 0xB5, 0x62, 0x06, 0x08, 0x06, 0x00,
+                    (uint8_t)(ms & 0xFF), (uint8_t)(ms >> 8),   // measRate (ms)
+                    0x01, 0x00,                                 // navRate = 1 cycle
+                    0x01, 0x00,                                 // timeRef = GPS time
+                    0x00, 0x00 };                               // checksum (filled below)
+  for (int i = 2; i < 12; i++) { ubx[12] += ubx[i]; ubx[13] += ubx[12]; }
+  Serial1.write(ubx, sizeof(ubx));
+  delay(100);
+  Serial1.print("$PMTK220,200*2C\r\n");   // fallback is fixed at 5 Hz (checksum is baked in)
 }
 
 static void updateClock(char *out) {
@@ -216,12 +276,12 @@ static void publishData() {
   d.fuelPct    = fuelPct;
   d.battV      = battV;
   d.speedMph   = speedMph;
-  d.headingDeg = headingDeg;
+  d.headingDeg = smartHeading();
   d.sats       = sats;
   d.fix        = gpsFix;
   updateClock(d.clock);
-  strncpy(d.magName, magAddr == 0x0D ? "QMC5883L" : magAddr == 0x1E ? "HMC5883L" : "none",
-          sizeof(d.magName));
+  strncpy(d.magName, magAddr == 0x0D ? "QMC5883L" : magAddr == 0x1E ? "HMC5883L" :
+                     magIsIST ? "IST8310" : "none", sizeof(d.magName));
   taskENTER_CRITICAL(&sharedMux);
   shared = d;
   taskEXIT_CRITICAL(&sharedMux);
@@ -261,6 +321,7 @@ void Sensors_Start(void) {
   strcpy(shared.magName, "none");
 
   Serial1.begin(9600, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
+  gpsSetRate();
 
   I2C_Lock();
   adsOK = ads.begin(0x48);
@@ -270,7 +331,8 @@ void Sensors_Start(void) {
 
   magInit();
   Serial.printf("Magnetometer: %s\n",
-    magAddr == 0x0D ? "QMC5883L (0x0D)" : magAddr == 0x1E ? "HMC5883L (0x1E)" : "NONE FOUND");
+    magAddr == 0x0D ? "QMC5883L (0x0D)" : magAddr == 0x1E ? "HMC5883L (0x1E)" :
+    magIsIST ? "IST8310" : "NONE FOUND");
 
   WiFi.mode(WIFI_AP);
   WiFi.softAP(AP_SSID, AP_PASS);
