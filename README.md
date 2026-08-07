@@ -12,7 +12,8 @@ voltage, a clock, and a compass, and serves the same data live to a phone/PC ove
 ## Status
 - ✅ **V1 bench firmware** — reads fuel + battery (ADS1115), GPS speed, compass; serves a WiFi dashboard. No display driver yet.
 - ✅ **Fuel calibrated** to the actual sender: **70.0 Ω empty / 10.9 Ω full**.
-- ⏳ **V2** — LVGL round-display UI (Fuel · Speed · Volts · Clock · Compass), phone dashboard alongside.
+- ✅ **V2 display firmware** — five swipeable LVGL screens on the round LCD (Fuel · Speed · Volts · Clock · Compass), phone dashboard still live. Compile-verified; awaiting on-hardware shakedown.
+- ⏳ In-car install: buck power, compass figure-8 calibration, voltage trim against a meter.
 
 ## Hardware
 | Part | Role | Bus |
@@ -35,15 +36,21 @@ voltage, a clock, and a compass, and serves the same data live to a phone/PC ove
 
 ## Repo layout
 ```
-firmware/BeetleDash_V1_bench/   Arduino sketch (V1 baseline)
-docs/PROJECT_CONTEXT.md         ground truth for AI coding + humans
-docs/SETUP.md                   flash & bench-test guide
-docs/Build-Plan.md              architecture & design notes
+firmware/BeetleDash_V1_bench/     Arduino sketch (V1 baseline, no display)
+firmware/BeetleDash_V2_display/   Arduino sketch (V2: LVGL round-display UI + V1 sensors/WiFi)
+docs/PROJECT_CONTEXT.md           ground truth for AI coding + humans
+docs/SETUP.md                     flash & bench-test guide (V1 §1–5, V2 §6)
+docs/Build-Plan.md                architecture & design notes
 ```
 
 ## Build & flash
 Arduino IDE 2.x, core **esp32 by Espressif v3.x**, board **Waveshare ESP32-S3-Touch-LCD-2.1**,
-**USB CDC On Boot: Enabled**, Serial @ 115200. Full steps in [`docs/SETUP.md`](docs/SETUP.md).
+**USB CDC On Boot: Enabled**, Serial @ 115200. V2 additionally needs the LVGL 8.3 library from
+Waveshare's demo package (offline install) with the large Montserrat fonts enabled.
+Full steps in [`docs/SETUP.md`](docs/SETUP.md).
+
+V2 architecture: sensors + WiFi AP run as a FreeRTOS task on **core 0**, LVGL owns **core 1**;
+the shared I²C bus (touch + ADS1115 + compass on GPIO15/7) is serialized with a mutex.
 
 ## Dashboard
 Board runs a WiFi AP **`BeetleDash`** (pw `beetle1234`) → open **http://192.168.4.1**.

@@ -60,15 +60,17 @@ The magnetometer on the GPS puck shares SDA/SCL — nothing extra to wire.
 
 ## 3. Test fuel without the tank
 
-Drop a single resistor from the kit in place of the sender and watch the reading:
+Drop a single resistor from the kit in place of the sender and watch the reading.
+Remember the VDO sender runs **backwards**: high resistance = empty, low = full
+(calibrated 70.0 Ω empty → 10.9 Ω full):
 
 | Resistor | Expected fuel % |
 |---|---|
-| 10 Ω | ~0 % (empty) |
-| 47 Ω | ~22 % |
-| 100 Ω | ~53 % |
-| 150 Ω | ~82 % |
-| 180 Ω | ~100 % (full) |
+| 68 Ω | ~3 % (near empty) |
+| 47 Ω | ~39 % |
+| 33 Ω | ~63 % |
+| 22 Ω | ~81 % |
+| 10 Ω | ~100 % (full) |
 
 A 200Ω trim pot is even nicer — sweep it and watch the bar move.
 
@@ -80,7 +82,7 @@ A 200Ω trim pot is even nicer — sweep it and watch the bar move.
 2. Open a browser to **http://192.168.4.1**.
 3. Live fuel bar, battery, speed, and a compass needle update ~2–3×/sec.
 
-The `mag` field in the JSON (and Serial) tells you which compass chip was detected — **QMC5883L** or **HMC5883L**. Good to know for later.
+The `mag` field in the JSON (and Serial) tells you which compass chip was detected — **QMC5883L**, **HMC5883L**, or **IST8310** (V2). Good to know for later.
 
 ---
 
@@ -93,5 +95,34 @@ The `mag` field in the JSON (and Serial) tells you which compass chip was detect
 
 ---
 
-## Next: V2 = the round display
-Once you confirm these four values are live, I'll add the LVGL round-gauge UI (Arduino_GFX + ST7701) so the same data renders on the 2.1" screen — the phone dashboard keeps working alongside it.
+## 6. V2 — flash the round-display firmware
+
+V2 (`firmware/BeetleDash_V2_display`) renders **Fuel · Speed · Volts · Clock · Compass** as
+swipeable screens on the round LCD, with the phone dashboard still live. Same wiring as V1.
+
+### One-time library setup
+
+1. **LVGL 8.3.10 — install offline from the Waveshare demo package** (do *not* use the Library
+   Manager version; the demo ships a preconfigured `lv_conf.h`):
+   - Download [ESP32-S3-Touch-LCD-2.1-Demo.zip](https://files.waveshare.com/wiki/ESP32-S3-Touch-LCD-2.1/ESP32-S3-Touch-LCD-2.1-Demo.zip)
+   - Copy its `Arduino/libraries/lvgl` folder into `Documents/Arduino/libraries/`
+2. **Enable the large fonts** the gauges use: in `Documents/Arduino/libraries/lvgl/src/lv_conf.h`,
+   set `LV_FONT_MONTSERRAT_20/24/28/32/40/48` from `0` to `1`.
+3. **Adafruit ADS1X15** and **TinyGPSPlus** via the Library Manager (same as V1).
+
+### Board settings (Tools menu)
+
+- Board: **Waveshare ESP32-S3-Touch-LCD-2.1** (dedicated profile under *esp32*, core v3.x —
+  presets flash/PSRAM correctly)
+- USB CDC On Boot: **Enabled** · Serial Monitor @ **115200**
+
+### What to expect
+
+- Boot screen comes up in ~2 s; swipe left/right to change gauges; page dots at the bottom.
+- Serial prints the same sensor line as V1, plus which compass chip was found.
+- Phone dashboard unchanged: join **BeetleDash** WiFi → http://192.168.4.1.
+- Set `UI_DEMO_MODE` to `1` at the top of the sketch to sweep all gauges with fake data
+  (nice for testing the display with nothing wired).
+
+> The display/touch drivers (`Display_ST7701`, `Touch_CST820`, `TCA9554PWR`) come from
+> Waveshare's official demo — panel timings are exact and should not be edited.

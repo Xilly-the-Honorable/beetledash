@@ -12,8 +12,9 @@ A drop-in **round digital gauge** for a **1965 VW Beetle (12 V, negative ground)
 OEM gauges in a 52 mm dash hole. A Waveshare round touchscreen (ESP32-S3) shows the readings and
 also serves a live dashboard to a phone/PC over WiFi.
 
-**V1 (current):** Fuel level · Battery voltage · GPS speed · Compass heading. (Clock screen = easy add.)
-**V2 (next):** Render all of the above on the round LCD via LVGL, as swipeable screens.
+**V1:** Fuel level · Battery voltage · GPS speed · Compass heading, served to the phone. (Working baseline.)
+**V2 (current):** All of the above + Clock rendered on the round LCD via LVGL as swipeable screens
+(`firmware/BeetleDash_V2_display`), phone dashboard still live.
 Out of scope: oil pressure, oil temperature, external temperature.
 
 ---
@@ -99,6 +100,11 @@ ADS1115 gain = **GAIN_ONE (±4.096 V)**. Powered from 3V3.
 ## 8. V2 — display firmware requirements
 - Framework: **Arduino + LVGL**. Start from **Waveshare's ESP32-S3-Touch-LCD-2.1 LVGL demo** (correct ST7701 RGB
   timings + touch), or **Arduino_GFX** for the panel. Do NOT hand-roll the RGB timing.
+- **As built:** panel/touch drivers come verbatim from the Waveshare demo — ST7701 init over 3-wire SPI
+  (GPIO1/2), CS/reset via **TCA9554 expander @0x20**, touch is a **CST820 @0x15** (not GT911 — that's the
+  2.8" boards), LVGL **8.3.10** with the demo's `lv_conf.h` + large Montserrat fonts enabled.
+  The touch controller shares the GPIO15/7 I²C bus with the ADS1115 + compass, so **every I²C
+  transaction goes through the mutex in `I2C_Driver`** — keep it that way.
 - **Swipeable screens:** Fuel · Speed · Volts · Clock · Compass (touch/swipe to change).
 - Round-gauge aesthetic; readable at a glance in daylight. Optional night-dim later (GPIO0).
 - Run **UI on one core, sensors + WiFi on the other**; non-blocking loop; drain GPS every loop, sample ADC/mag ~5 Hz.
