@@ -163,15 +163,33 @@ static void make_hub(lv_obj_t *tile, lv_coord_t d, lv_coord_t x, lv_coord_t y, b
 // ============================================================
 //  Screen builders
 // ============================================================
-// Original VW "TANK" gauge: needle pivots at bottom center, sweeping ~100°
-// across the top of the face. R (reserve) left, 1/2 middle, 1/1 right.
-static void fuel_tick_label_cb(lv_event_t *e)
+// Original VW/VDO "TANK" gauge (per reference photo): needle pivots at bottom
+// center, tick bars sweep the top. RES. left, 2/4 middle, 4/4 right.
+// Colored bars: red under RES., greens from light (2/4) to dark (4/4).
+#define COL_GREEN_DARK  0x2F5D3B
+#define COL_GREEN_LIGHT 0x9CBB9E
+
+static void fuel_tick_cb(lv_event_t *e)
 {
   lv_obj_draw_part_dsc_t *dsc = lv_event_get_draw_part_dsc(e);
-  if (dsc->type != LV_METER_DRAW_PART_TICK || dsc->text == NULL) return;
-  if (dsc->value == 0)       dsc->text = (char *)"R";
-  else if (dsc->value == 50) dsc->text = (char *)"1/2";
-  else if (dsc->value == 100)dsc->text = (char *)"1/1";
+  if (dsc->type != LV_METER_DRAW_PART_TICK) return;
+
+  if (dsc->line_dsc) {
+    if (dsc->value == 0)
+      dsc->line_dsc->color = lv_color_hex(COL_RED);
+    else if (dsc->value >= 50) {
+      // 2/4 -> 4/4: light green fading into dark green (mix=255 -> dark)
+      uint8_t mix = (uint8_t)((dsc->value - 50) * 255 / 50);
+      dsc->line_dsc->color = lv_color_mix(lv_color_hex(COL_GREEN_DARK),
+                                          lv_color_hex(COL_GREEN_LIGHT), mix);
+    }
+  }
+
+  if (dsc->text) {
+    if (dsc->value == 0)       dsc->text = (char *)"RES.";
+    else if (dsc->value == 50) dsc->text = (char *)"2/4";
+    else if (dsc->value == 100)dsc->text = (char *)"4/4";
+  }
 }
 
 static void build_fuel(lv_obj_t *tile)
@@ -185,16 +203,19 @@ static void build_fuel(lv_obj_t *tile)
 
   lv_meter_scale_t *sc = lv_meter_add_scale(fuelMeter);
   lv_meter_set_scale_range(fuelMeter, sc, 0, 100, 100, 220);  // 100° sweep across the top
-  lv_meter_set_scale_ticks(fuelMeter, sc, 11, 3, 16, lv_color_hex(COL_CREAM));       // every 10%
-  lv_meter_set_scale_major_ticks(fuelMeter, sc, 5, 6, 30, lv_color_hex(COL_CREAM), 30); // R, 1/2, 1/1
+  lv_meter_set_scale_ticks(fuelMeter, sc, 11, 4, 18, lv_color_hex(COL_CREAM));       // every 10%
+  lv_meter_set_scale_major_ticks(fuelMeter, sc, 5, 8, 32, lv_color_hex(COL_CREAM), 30); // RES., 2/4, 4/4
   lv_obj_set_style_text_font(fuelMeter, &lv_font_montserrat_24, LV_PART_TICKS);
   lv_obj_set_style_text_color(fuelMeter, lv_color_hex(COL_CREAM), LV_PART_TICKS);
-  lv_obj_add_event_cb(fuelMeter, fuel_tick_label_cb, LV_EVENT_DRAW_PART_BEGIN, NULL);
+  lv_obj_add_event_cb(fuelMeter, fuel_tick_cb, LV_EVENT_DRAW_PART_BEGIN, NULL);
 
-  // Red reserve wedge over the first ~12%
-  lv_meter_indicator_t *reserve = lv_meter_add_arc(fuelMeter, sc, 10, lv_color_hex(COL_RED), 0);
-  lv_meter_set_indicator_start_value(fuelMeter, reserve, 0);
-  lv_meter_set_indicator_end_value(fuelMeter, reserve, 12);
+  // The original's thin horizontal "ladder" lines across the scale band,
+  // bent to follow our round face: three faint arcs within the tick zone.
+  for (lv_coord_t r_mod = -8; r_mod >= -24; r_mod -= 8) {
+    lv_meter_indicator_t *rule = lv_meter_add_arc(fuelMeter, sc, 2, lv_color_hex(COL_FAINT), r_mod);
+    lv_meter_set_indicator_start_value(fuelMeter, rule, 0);
+    lv_meter_set_indicator_end_value(fuelMeter, rule, 100);
+  }
 
   fuelNeedle = lv_meter_add_needle_line(fuelMeter, sc, 6, lv_color_hex(COL_CREAM), -36);
   lv_meter_set_indicator_value(fuelMeter, fuelNeedle, 0);
