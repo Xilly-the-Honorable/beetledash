@@ -48,8 +48,9 @@ static lv_meter_indicator_t *speedNeedle;
 // Volts screen (VDO voltmeter)
 static lv_obj_t *voltMeter, *voltDigital;
 static lv_meter_indicator_t *voltNeedle;
-// Clock screen
-static lv_obj_t *clockValue, *clockSub;
+// Clock screen (vintage VDO dash clock)
+static lv_obj_t *clockMeter, *clockValue, *clockSub;
+static lv_meter_indicator_t *clockHourHand, *clockMinHand;
 // Compass screen (aviation direction indicator)
 static lv_obj_t *compassCard, *compassReadout;
 
@@ -116,15 +117,6 @@ static void make_wordmark(lv_obj_t *tile)
   lv_obj_t *l = make_label(tile, &lv_font_montserrat_12, COL_FAINT,
                            LV_ALIGN_BOTTOM_MID, 0, -52, "BEETLEDASH");
   lv_obj_set_style_text_letter_space(l, 4, 0);
-}
-
-// Blow a value label up 2x around its center — biggest built-in font is 48 pt,
-// which is too small to glance at from the driver's seat.
-static void make_huge(lv_obj_t *label)
-{
-  lv_obj_set_style_transform_pivot_x(label, lv_pct(50), 0);
-  lv_obj_set_style_transform_pivot_y(label, lv_pct(50), 0);
-  lv_obj_set_style_transform_zoom(label, 512, 0);
 }
 
 // Digital readout color state: muted red low, cream normal, muted amber high.
@@ -279,13 +271,49 @@ static void build_volts(lv_obj_t *tile)
   make_wordmark(tile);
 }
 
+// Vintage VDO dash clock: cream analog hands, 12/3/6/9 numerals, small digital
+// HH:MM under the hub. Minute scale 0–60; hour hand rides a hidden 0–720 scale.
+static void clock_tick_label_cb(lv_event_t *e)
+{
+  lv_obj_draw_part_dsc_t *dsc = lv_event_get_draw_part_dsc(e);
+  if (dsc->type != LV_METER_DRAW_PART_TICK || dsc->text == NULL) return;
+  switch (dsc->value) {
+    case 0:  dsc->text = (char *)"12"; break;
+    case 15: dsc->text = (char *)"3";  break;
+    case 30: dsc->text = (char *)"6";  break;
+    case 45: dsc->text = (char *)"9";  break;
+    default: dsc->text = (char *)"";   break;   // 5-minute marks: tick only
+  }
+}
+
 static void build_clock(lv_obj_t *tile)
 {
   make_bezel(tile);
-  make_caption(tile, "CLOCK", LV_ALIGN_TOP_MID, 0, 56);
-  clockValue = make_label(tile, &lv_font_montserrat_48, COL_TEXT, LV_ALIGN_CENTER, 0, -10, "--:--");
-  make_huge(clockValue);
-  clockSub = make_label(tile, &lv_font_montserrat_14, COL_FAINT, LV_ALIGN_CENTER, 0, 75, "waiting for GPS time");
+
+  clockMeter = make_bare_meter(tile, 430);
+  lv_obj_center(clockMeter);
+
+  lv_meter_scale_t *scMin = lv_meter_add_scale(clockMeter);
+  lv_meter_set_scale_range(clockMeter, scMin, 0, 60, 360, 270);   // 0 (=12) at the top
+  lv_meter_set_scale_ticks(clockMeter, scMin, 61, 2, 10, lv_color_hex(COL_FAINT));      // minutes
+  lv_meter_set_scale_major_ticks(clockMeter, scMin, 5, 5, 22, lv_color_hex(COL_CREAM), 26); // 5-min
+  lv_obj_set_style_text_font(clockMeter, &lv_font_montserrat_28, LV_PART_TICKS);
+  lv_obj_set_style_text_color(clockMeter, lv_color_hex(COL_CREAM), LV_PART_TICKS);
+  lv_obj_add_event_cb(clockMeter, clock_tick_label_cb, LV_EVENT_DRAW_PART_BEGIN, NULL);
+
+  // Tickless half-day scale so the hour hand moves smoothly between numerals
+  lv_meter_scale_t *scHour = lv_meter_add_scale(clockMeter);
+  lv_meter_set_scale_range(clockMeter, scHour, 0, 720, 360, 270);
+  lv_meter_set_scale_ticks(clockMeter, scHour, 0, 0, 0, lv_color_black());
+
+  clockMinHand  = lv_meter_add_needle_line(clockMeter, scMin,  5, lv_color_hex(COL_CREAM), -26);
+  clockHourHand = lv_meter_add_needle_line(clockMeter, scHour, 8, lv_color_hex(COL_CREAM), -82);
+  lv_meter_set_indicator_value(clockMeter, clockMinHand, 0);
+  lv_meter_set_indicator_value(clockMeter, clockHourHand, 0);
+
+  make_hub(tile, 44, 0, 0, false);
+  clockValue = make_label(tile, &lv_font_montserrat_28, COL_CREAM, LV_ALIGN_CENTER, 0, 118, "--:--");
+  clockSub = make_label(tile, &lv_font_montserrat_14, COL_FAINT, LV_ALIGN_CENTER, 0, 152, "waiting for GPS time");
   make_wordmark(tile);
 }
 
@@ -442,9 +470,15 @@ static void refresh_cb(lv_timer_t *t)
   lv_label_set_text_fmt(voltDigital, "%d.%d", v10 / 10, v10 % 10);
   lv_obj_set_style_text_color(voltDigital, lv_color_hex(volt_text_color(d.battV)), 0);
 
-  // --- Clock ---
+  // --- Clock (VDO dash clock) ---
   lv_label_set_text(clockValue, d.clock);
   lv_label_set_text(clockSub, d.fix ? "GPS time" : "waiting for GPS time");
+  if (d.clock[0] >= '0' && d.clock[0] <= '9') {
+    int hh = (d.clock[0] - '0') * 10 + (d.clock[1] - '0');
+    int mm = (d.clock[3] - '0') * 10 + (d.clock[4] - '0');
+    lv_meter_set_indicator_value(clockMeter, clockMinHand, mm);
+    lv_meter_set_indicator_value(clockMeter, clockHourHand, (hh % 12) * 60 + mm);
+  }
 
   // --- Compass (direction indicator) ---
   // Card angle = -heading, in LVGL 0.1° units. Skip the (expensive) rotation
