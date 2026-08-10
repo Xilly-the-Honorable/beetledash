@@ -39,10 +39,12 @@ static lv_obj_t *dots[SCREEN_COUNT];
 // Fuel screen (TANK)
 static lv_obj_t *fuelMeter, *fuelDigital;
 static lv_meter_indicator_t *fuelNeedle;
-// Speed screen
-static lv_obj_t *speedValue, *speedKmh, *speedSats;
-// Volts screen
-static lv_obj_t *voltArc, *voltValue, *voltStatus;
+// Speed screen (VDO speedometer)
+static lv_obj_t *speedMeter, *speedDigital, *speedSats;
+static lv_meter_indicator_t *speedNeedle;
+// Volts screen (VDO voltmeter)
+static lv_obj_t *voltMeter, *voltDigital;
+static lv_meter_indicator_t *voltNeedle;
 // Clock screen
 static lv_obj_t *clockValue, *clockSub;
 // Compass screen
@@ -122,11 +124,12 @@ static void make_huge(lv_obj_t *label)
   lv_obj_set_style_transform_zoom(label, 512, 0);
 }
 
-static uint32_t volt_color(float v)
+// Digital readout color state: muted red low, cream normal, muted amber high.
+static uint32_t volt_text_color(float v)
 {
   if (v < VOLT_LOW_BELOW)  return COL_RED;
   if (v > VOLT_HIGH_ABOVE) return COL_AMBER;
-  return COL_GREEN;
+  return COL_CREAM;
 }
 
 // Bare meter: no background, no border — just scale, ticks, and needle.
@@ -209,30 +212,53 @@ static void build_speed(lv_obj_t *tile)
   make_wordmark(tile);
 }
 
+// VDO voltmeter: 8–16 V scale (decivolt units internally), colored bands on the
+// arc, needle from a lower-center pivot, live digital readout under the hub.
+static void volt_tick_label_cb(lv_event_t *e)
+{
+  lv_obj_draw_part_dsc_t *dsc = lv_event_get_draw_part_dsc(e);
+  if (dsc->type != LV_METER_DRAW_PART_TICK || dsc->text == NULL) return;
+  static char buf[8];                       // LVGL draws each label before the next event
+  lv_snprintf(buf, sizeof(buf), "%d", (int)(dsc->value / 10));
+  dsc->text = buf;
+}
+
 static void build_volts(lv_obj_t *tile)
 {
   make_bezel(tile);
-  make_caption(tile, "VOLTS", LV_ALIGN_TOP_MID, 0, 56);
 
-  voltArc = lv_arc_create(tile);
-  lv_obj_set_size(voltArc, 360, 360);
-  lv_obj_center(voltArc);
-  lv_arc_set_rotation(voltArc, 135);
-  lv_arc_set_bg_angles(voltArc, 0, 270);
-  lv_arc_set_range(voltArc, 90, 160);          // 9.0 V .. 16.0 V (x10)
-  lv_arc_set_value(voltArc, 90);
-  lv_obj_remove_style(voltArc, NULL, LV_PART_KNOB);
-  lv_obj_clear_flag(voltArc, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_style_arc_width(voltArc, 22, LV_PART_MAIN);
-  lv_obj_set_style_arc_width(voltArc, 22, LV_PART_INDICATOR);
-  lv_obj_set_style_arc_color(voltArc, lv_color_hex(COL_CARD), LV_PART_MAIN);
-  lv_obj_set_style_arc_color(voltArc, lv_color_hex(COL_GREEN), LV_PART_INDICATOR);
-  lv_obj_set_style_arc_rounded(voltArc, true, LV_PART_INDICATOR);
+  const lv_coord_t msize = 540, pivotY = 340;
+  voltMeter = make_bare_meter(tile, msize);
+  lv_obj_set_pos(voltMeter, 240 - msize / 2, pivotY - msize / 2);
 
-  voltValue = make_label(tile, &lv_font_montserrat_48, COL_TEXT, LV_ALIGN_CENTER, 0, -10, "--.-");
-  make_huge(voltValue);
-  make_label(tile, &lv_font_montserrat_20, COL_MUTED, LV_ALIGN_CENTER, 0, 64, "V");
-  voltStatus = make_label(tile, &lv_font_montserrat_24, COL_GREEN, LV_ALIGN_CENTER, 0, 110, "");
+  lv_meter_scale_t *sc = lv_meter_add_scale(voltMeter);
+  lv_meter_set_scale_range(voltMeter, sc, 80, 160, 120, 210);   // 8–16 V over 120° up top
+  lv_meter_set_scale_ticks(voltMeter, sc, 9, 3, 16, lv_color_hex(COL_CREAM));        // every 1 V
+  lv_meter_set_scale_major_ticks(voltMeter, sc, 2, 6, 28, lv_color_hex(COL_CREAM), 28); // 8·10·12·14·16
+  lv_obj_set_style_text_font(voltMeter, &lv_font_montserrat_24, LV_PART_TICKS);
+  lv_obj_set_style_text_color(voltMeter, lv_color_hex(COL_CREAM), LV_PART_TICKS);
+  lv_obj_add_event_cb(voltMeter, volt_tick_label_cb, LV_EVENT_DRAW_PART_BEGIN, NULL);
+
+  // Colored bands on the scale arc (like the reference): red 8–10.5,
+  // amber transition 10.5–11.5, muted green 11.5–16.
+  struct { int from, to; uint32_t col; } bands[] = {
+    {80, 105, COL_RED}, {105, 115, COL_AMBER}, {115, 160, COL_GREEN},
+  };
+  for (auto &b : bands) {
+    lv_meter_indicator_t *arc = lv_meter_add_arc(voltMeter, sc, 10, lv_color_hex(b.col), 0);
+    lv_meter_set_indicator_start_value(voltMeter, arc, b.from);
+    lv_meter_set_indicator_end_value(voltMeter, arc, b.to);
+  }
+
+  voltNeedle = lv_meter_add_needle_line(voltMeter, sc, 6, lv_color_hex(COL_CREAM), -36);
+  lv_meter_set_indicator_value(voltMeter, voltNeedle, 120);
+
+  make_hub(tile, 56, 0, pivotY - 240, false);
+  make_caption(tile, "VOLTS", LV_ALIGN_CENTER, 78, -24);        // right-of-center, like the reference
+
+  // Live digital readout under the hub — hard requirement.
+  voltDigital = make_label(tile, &lv_font_montserrat_28, COL_CREAM, LV_ALIGN_CENTER, 0, 150, "--.-");
+  make_label(tile, &lv_font_montserrat_14, COL_FAINT, LV_ALIGN_CENTER, 52, 154, "V");
   make_wordmark(tile);
 }
 
@@ -332,15 +358,12 @@ static void refresh_cb(lv_timer_t *t)
   lv_label_set_text_fmt(speedKmh, "%d km/h", (int)(d.speedMph * 1.609344f + 0.5f));
   lv_label_set_text_fmt(speedSats, "%d sats · %s", d.sats, d.fix ? "fix" : "no fix");
 
-  // --- Volts ---
+  // --- Volts (VDO voltmeter) ---
   int v10 = (int)(d.battV * 10.0f + 0.5f);
-  lv_arc_set_value(voltArc, v10);
-  uint32_t vc = volt_color(d.battV);
-  lv_obj_set_style_arc_color(voltArc, lv_color_hex(vc), LV_PART_INDICATOR);
-  lv_label_set_text_fmt(voltValue, "%d.%d", v10 / 10, v10 % 10);
-  lv_label_set_text(voltStatus, d.battV < VOLT_LOW_BELOW ? "LOW" :
-                                d.battV > VOLT_HIGH_ABOVE ? "HIGH" : "OK");
-  lv_obj_set_style_text_color(voltStatus, lv_color_hex(vc), 0);
+  int vNeedle = v10 < 80 ? 80 : (v10 > 160 ? 160 : v10);   // needle stays on the 8–16 scale
+  lv_meter_set_indicator_value(voltMeter, voltNeedle, vNeedle);
+  lv_label_set_text_fmt(voltDigital, "%d.%d", v10 / 10, v10 % 10);
+  lv_obj_set_style_text_color(voltDigital, lv_color_hex(volt_text_color(d.battV)), 0);
 
   // --- Clock ---
   lv_label_set_text(clockValue, d.clock);
