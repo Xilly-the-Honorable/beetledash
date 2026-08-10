@@ -4,7 +4,8 @@
 #include <math.h>
 #include <esp_heap_caps.h>
 
-extern const lv_img_dsc_t beetle_icon;   // beetle_icon.c (A8 silhouette, recolored at runtime)
+extern const lv_img_dsc_t beetle_icon;          // beetle_icon.c (A8 silhouette, recolored at runtime)
+extern const lv_img_dsc_t beetle_front_worried; // beetle_front_worried.c (low-fuel alert mascot)
 
 // ---------- Palette: 1965 VW/VDO instrument family (docs/V3_vintage_ui_brief.md §0) ----------
 #define COL_FACE      0x141414   // matte near-black gauge face
@@ -40,8 +41,10 @@ static lv_obj_t *tileview;
 static lv_obj_t *dots[SCREEN_COUNT];
 
 // Fuel screen (TANK)
-static lv_obj_t *fuelMeter, *fuelDigital;
+static lv_obj_t *fuelMeter, *fuelDigital, *fuelAlert;
 static lv_meter_indicator_t *fuelNeedle;
+#define FUEL_ALERT_BELOW 25.0f   // show the "FUEL LOW" alert under this %
+#define COL_ALERT 0xE0452F       // brighter warning red-orange (alert only)
 // Speed screen (VDO speedometer)
 static lv_obj_t *speedMeter, *speedDigital, *speedSats;
 static lv_meter_indicator_t *speedNeedle;
@@ -222,6 +225,30 @@ static void build_fuel(lv_obj_t *tile)
 
   make_hub(tile, 56, 0, pivotY - 240, false);                 // dark cap, chrome edge
   fuelDigital = make_label(tile, &lv_font_montserrat_20, COL_FAINT, LV_ALIGN_CENTER, 0, 20, "--%");
+
+  // "FUEL LOW" alert with the worried beetle — replaces the digital % when low.
+  fuelAlert = lv_obj_create(tile);
+  lv_obj_set_size(fuelAlert, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_style_bg_opa(fuelAlert, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(fuelAlert, 0, 0);
+  lv_obj_set_style_pad_all(fuelAlert, 0, 0);
+  lv_obj_set_style_pad_column(fuelAlert, 16, 0);
+  lv_obj_set_flex_flow(fuelAlert, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(fuelAlert, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_clear_flag(fuelAlert, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_t *alertText = lv_label_create(fuelAlert);
+  lv_obj_set_style_text_font(alertText, &lv_font_montserrat_32, 0);
+  lv_obj_set_style_text_color(alertText, lv_color_hex(COL_ALERT), 0);
+  lv_obj_set_style_text_letter_space(alertText, 2, 0);
+  lv_label_set_text(alertText, "FUEL\nLOW");
+
+  lv_obj_t *worried = lv_img_create(fuelAlert);
+  lv_img_set_src(worried, &beetle_front_worried);
+
+  lv_obj_align(fuelAlert, LV_ALIGN_CENTER, 0, 6);
+  lv_obj_add_flag(fuelAlert, LV_OBJ_FLAG_HIDDEN);
+
   make_caption(tile, "TANK", LV_ALIGN_CENTER, 0, 146);
   make_wordmark(tile);
 }
@@ -487,6 +514,18 @@ static void refresh_cb(lv_timer_t *t)
   int fuelPct = (int)(d.fuelPct + 0.5f);
   lv_meter_set_indicator_value(fuelMeter, fuelNeedle, fuelPct);
   lv_label_set_text_fmt(fuelDigital, "%d%%", fuelPct);
+
+  // Low-fuel alert swaps in for the digital % (guarded: don't re-invalidate)
+  bool low = d.fuelPct < FUEL_ALERT_BELOW;
+  if (low == lv_obj_has_flag(fuelAlert, LV_OBJ_FLAG_HIDDEN)) {
+    if (low) {
+      lv_obj_clear_flag(fuelAlert, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(fuelDigital, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(fuelAlert, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_clear_flag(fuelDigital, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
 
   // --- Speed (VDO speedometer) ---
   int mph = (int)(d.speedMph + 0.5f);
