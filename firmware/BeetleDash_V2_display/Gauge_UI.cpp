@@ -59,11 +59,21 @@ static const char *CARDINALS[8] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
 // ============================================================
 //  Small helpers
 // ============================================================
+// Tap anywhere on a gauge -> jump to the next screen (wraps around).
+// A drag still swipes: LVGL suppresses CLICKED once a gesture turns into a scroll.
+// No animation: a single redraw beats the sluggish full-screen scroll on this panel.
+static void tile_tap_cb(lv_event_t *e)
+{
+  int idx = (int)(intptr_t)lv_event_get_user_data(e);
+  lv_obj_set_tile_id(tileview, (idx + 1) % SCREEN_COUNT, 0, LV_ANIM_OFF);
+}
+
 static lv_obj_t *make_tile(int idx)
 {
   lv_obj_t *tile = lv_tileview_add_tile(tileview, idx, 0, LV_DIR_HOR);
   lv_obj_set_style_bg_color(tile, lv_color_hex(COL_BG), 0);
   lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
+  lv_obj_add_event_cb(tile, tile_tap_cb, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
   return tile;
 }
 
