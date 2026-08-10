@@ -3,15 +3,31 @@
 #include <lvgl.h>
 #include <math.h>
 
-// ---------- Palette (matches the phone dashboard) ----------
-#define COL_BG      0x0b0f14
-#define COL_CARD    0x141b24
-#define COL_TEXT    0xe8eef5
-#define COL_MUTED   0x7d8ea0
-#define COL_FAINT   0x5f7183
-#define COL_RED     0xe5484d
-#define COL_AMBER   0xf5a623
-#define COL_GREEN   0x3fb950
+// ---------- Palette: 1965 VW/VDO instrument family (docs/V3_vintage_ui_brief.md §0) ----------
+#define COL_FACE      0x141414   // matte near-black gauge face
+#define COL_BEZEL     0xC9CDD1   // chrome outer ring
+#define COL_BEZEL_SHD 0x5A5E62   // thin inner shadow ring
+#define COL_CREAM     0xEDE6D6   // aged-white markings/needles (never pure white)
+#define COL_SAGE      0xC9CFC0   // classic VDO grey-green numerals
+#define COL_FAINT     0x6B6B60   // dimmed cream for secondary text
+#define COL_TRACK     0x2A2A26   // unlit scale track
+#define COL_RED       0xB3352C   // vintage red (muted)
+#define COL_AMBER     0xC98A2C   // muted amber
+#define COL_GREEN     0x3E6B4F   // muted green band
+#define COL_ORANGE    0xE8930C   // instrument orange (compass only)
+#define COL_YELLOW    0xE8C43C   // amber/yellow cardinal letters
+#define COL_HUB_SILVER 0xB9BDC1  // speedo-style silver hub cap
+#define COL_HUB_DARK  0x1A1A1A   // volt-style dark hub cap
+#define COL_DOT_OFF   0x3A3A3A   // inactive page dot
+
+// Legacy aliases used by the not-yet-restyled screens (removed as milestones land)
+#define COL_BG      COL_FACE
+#define COL_CARD    COL_TRACK
+#define COL_TEXT    COL_CREAM
+#define COL_MUTED   COL_SAGE
+
+#define BEZEL_W       8          // chrome ring width
+#define BEZEL_SHD_W   6          // shadow ring width
 
 #define SCREEN_COUNT 5
 
@@ -55,6 +71,47 @@ static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, uint32_t co
   return l;
 }
 
+// Plain circle (used for bezel rings, hubs, markers)
+static lv_obj_t *make_circle(lv_obj_t *parent, lv_coord_t d, uint32_t fill)
+{
+  lv_obj_t *c = lv_obj_create(parent);
+  lv_obj_set_size(c, d, d);
+  lv_obj_set_style_radius(c, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_color(c, lv_color_hex(fill), 0);
+  lv_obj_set_style_bg_opa(c, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(c, 0, 0);
+  lv_obj_set_style_pad_all(c, 0, 0);
+  lv_obj_clear_flag(c, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_center(c);
+  return c;
+}
+
+// Chrome bezel: outer chrome ring -> thin shadow ring -> matte face.
+// Concentric filled circles, drawn once, everything else goes on top.
+static void make_bezel(lv_obj_t *tile)
+{
+  make_circle(tile, LV_HOR_RES, COL_BEZEL);
+  make_circle(tile, LV_HOR_RES - 2 * BEZEL_W, COL_BEZEL_SHD);
+  make_circle(tile, LV_HOR_RES - 2 * (BEZEL_W + BEZEL_SHD_W), COL_FACE);
+}
+
+// Letter-spaced caption ("TANK", "VOLTS", "MPH", ...)
+static lv_obj_t *make_caption(lv_obj_t *parent, const char *text, lv_align_t align,
+                              lv_coord_t x, lv_coord_t y)
+{
+  lv_obj_t *l = make_label(parent, &lv_font_montserrat_20, COL_CREAM, align, x, y, text);
+  lv_obj_set_style_text_letter_space(l, 6, 0);
+  return l;
+}
+
+// Tiny period wordmark near the bottom of every face
+static void make_wordmark(lv_obj_t *tile)
+{
+  lv_obj_t *l = make_label(tile, &lv_font_montserrat_12, COL_FAINT,
+                           LV_ALIGN_BOTTOM_MID, 0, -52, "BEETLEDASH");
+  lv_obj_set_style_text_letter_space(l, 4, 0);
+}
+
 // Blow a value label up 2x around its center — biggest built-in font is 48 pt,
 // which is too small to glance at from the driver's seat.
 static void make_huge(lv_obj_t *label)
@@ -83,7 +140,8 @@ static uint32_t fuel_color(float pct)
 // ============================================================
 static void build_fuel(lv_obj_t *tile)
 {
-  make_label(tile, &lv_font_montserrat_20, COL_MUTED, LV_ALIGN_TOP_MID, 0, 56, "FUEL");
+  make_bezel(tile);
+  make_caption(tile, "FUEL", LV_ALIGN_TOP_MID, 0, 56);
 
   fuelArc = lv_arc_create(tile);
   lv_obj_set_size(fuelArc, 360, 360);
@@ -107,21 +165,25 @@ static void build_fuel(lv_obj_t *tile)
   fuelValue = make_label(tile, &lv_font_montserrat_48, COL_TEXT, LV_ALIGN_CENTER, 0, -10, "--");
   make_huge(fuelValue);
   make_label(tile, &lv_font_montserrat_20, COL_MUTED, LV_ALIGN_CENTER, 0, 64, "%");
+  make_wordmark(tile);
 }
 
 static void build_speed(lv_obj_t *tile)
 {
-  make_label(tile, &lv_font_montserrat_20, COL_MUTED, LV_ALIGN_TOP_MID, 0, 56, "SPEED");
+  make_bezel(tile);
+  make_caption(tile, "SPEED", LV_ALIGN_TOP_MID, 0, 56);
   speedValue = make_label(tile, &lv_font_montserrat_48, COL_TEXT, LV_ALIGN_CENTER, 0, -40, "--");
   make_huge(speedValue);
   make_label(tile, &lv_font_montserrat_24, COL_MUTED, LV_ALIGN_CENTER, 0, 36, "mph");
   speedKmh = make_label(tile, &lv_font_montserrat_20, COL_FAINT, LV_ALIGN_CENTER, 0, 76, "-- km/h");
   speedSats = make_label(tile, &lv_font_montserrat_14, COL_FAINT, LV_ALIGN_BOTTOM_MID, 0, -70, "acquiring fix...");
+  make_wordmark(tile);
 }
 
 static void build_volts(lv_obj_t *tile)
 {
-  make_label(tile, &lv_font_montserrat_20, COL_MUTED, LV_ALIGN_TOP_MID, 0, 56, "BATTERY");
+  make_bezel(tile);
+  make_caption(tile, "VOLTS", LV_ALIGN_TOP_MID, 0, 56);
 
   voltArc = lv_arc_create(tile);
   lv_obj_set_size(voltArc, 360, 360);
@@ -142,19 +204,23 @@ static void build_volts(lv_obj_t *tile)
   make_huge(voltValue);
   make_label(tile, &lv_font_montserrat_20, COL_MUTED, LV_ALIGN_CENTER, 0, 64, "V");
   voltStatus = make_label(tile, &lv_font_montserrat_24, COL_GREEN, LV_ALIGN_CENTER, 0, 110, "");
+  make_wordmark(tile);
 }
 
 static void build_clock(lv_obj_t *tile)
 {
-  make_label(tile, &lv_font_montserrat_20, COL_MUTED, LV_ALIGN_TOP_MID, 0, 56, "CLOCK");
+  make_bezel(tile);
+  make_caption(tile, "CLOCK", LV_ALIGN_TOP_MID, 0, 56);
   clockValue = make_label(tile, &lv_font_montserrat_48, COL_TEXT, LV_ALIGN_CENTER, 0, -10, "--:--");
   make_huge(clockValue);
   clockSub = make_label(tile, &lv_font_montserrat_14, COL_FAINT, LV_ALIGN_CENTER, 0, 75, "waiting for GPS time");
+  make_wordmark(tile);
 }
 
 static void build_compass(lv_obj_t *tile)
 {
-  make_label(tile, &lv_font_montserrat_20, COL_MUTED, LV_ALIGN_TOP_MID, 0, 56, "COMPASS");
+  make_bezel(tile);
+  make_caption(tile, "COMPASS", LV_ALIGN_TOP_MID, 0, 56);
 
   // Fixed lubber line at 12 o'clock; the cardinal ring rotates beneath it.
   lv_obj_t *marker = lv_obj_create(tile);
@@ -175,6 +241,7 @@ static void build_compass(lv_obj_t *tile)
   compassValue = make_label(tile, &lv_font_montserrat_48, COL_TEXT, LV_ALIGN_CENTER, 0, -10, "---");
   make_huge(compassValue);
   compassCardinal = make_label(tile, &lv_font_montserrat_28, COL_MUTED, LV_ALIGN_CENTER, 0, 70, "-");
+  make_wordmark(tile);
 }
 
 // ============================================================
@@ -183,8 +250,8 @@ static void build_compass(lv_obj_t *tile)
 static void update_dots(int active)
 {
   for (int i = 0; i < SCREEN_COUNT; i++) {
-    lv_obj_set_style_bg_color(dots[i], lv_color_hex(i == active ? COL_TEXT : COL_FAINT), 0);
-    lv_obj_set_size(dots[i], i == active ? 12 : 8, i == active ? 12 : 8);
+    lv_obj_set_style_bg_color(dots[i], lv_color_hex(i == active ? COL_CREAM : COL_DOT_OFF), 0);
+    lv_obj_set_size(dots[i], i == active ? 10 : 7, i == active ? 10 : 7);
   }
 }
 

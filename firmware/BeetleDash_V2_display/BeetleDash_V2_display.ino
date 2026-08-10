@@ -19,54 +19,51 @@
  * ------------------------------------------------------------
  */
 
-#include "Config.h"          // all tunables (pins, calibration, AP, timezone)
-#include "LVGL_Driver.h"     // pulls in Display_ST7701 / Touch_CST820 / TCA9554PWR / I2C_Driver
-#include "Sensors.h"         // core-0 sensor/WiFi task + GaugeData snapshot
-#include "Gauge_UI.h"        // five swipeable gauge screens + page dots
+#include "Config.h"       // all tunables (pins, calibration, AP, timezone)
+#include "LVGL_Driver.h"  // pulls in Display_ST7701 / Touch_CST820 / TCA9554PWR / I2C_Driver
+#include "Sensors.h"      // core-0 sensor/WiFi task + GaugeData snapshot
+#include "Gauge_UI.h"     // five swipeable gauge screens + page dots
 
 // Set to 1 to drive the UI with sweeping demo values instead of real sensors
 // (handy on the bench with nothing wired up).
 #define UI_DEMO_MODE 0
 
 #if UI_DEMO_MODE
-static void dummy_provider(GaugeData *d)
-{
+static void dummy_provider(GaugeData *d) {
   float t = millis() / 1000.0f;
-  d->fuelPct    = 50.0f + 50.0f * sinf(t * 0.30f);
-  d->battV      = 12.8f + 2.0f * sinf(t * 0.20f);
-  d->speedMph   = 30.0f + 30.0f * sinf(t * 0.15f);
+  d->fuelPct = 50.0f + 50.0f * sinf(t * 0.30f);
+  d->battV = 12.8f + 2.0f * sinf(t * 0.20f);
+  d->speedMph = 30.0f + 30.0f * sinf(t * 0.15f);
   d->headingDeg = fmodf(t * 20.0f, 360.0f);
-  d->sats       = 7;
-  d->fix        = true;
+  d->sats = 7;
+  d->fix = true;
   strcpy(d->clock, "12:34");
   strcpy(d->magName, "demo");
 }
 #endif
 
-void setup()
-{
+void setup() {
   Serial.begin(115200);
   delay(300);
   Serial.println("\nBeetleDash V2 display starting...");
 
   I2C_Init();
-  TCA9554PWR_Init(0x00);       // all EXIO pins as outputs (LCD reset/CS, touch reset)
+  TCA9554PWR_Init(0x00);  // all EXIO pins as outputs (LCD reset/CS, touch reset)
   Set_EXIO(EXIO_PIN8, Low);
-  LCD_Init();                  // ST7701 reset + init + touch + backlight
+  LCD_Init();  // ST7701 reset + init + touch + backlight
   Lvgl_Init();
 
-  Sensors_Start();             // sensors + WiFi AP on core 0; LVGL owns core 1
+  Sensors_Start();  // sensors + WiFi AP on core 0; LVGL owns core 1
 
 #if UI_DEMO_MODE
   Gauge_UI_Init(dummy_provider);
 #else
-  Gauge_UI_Init(Gauge_GetData);    // live sensor snapshot from core 0
+  Gauge_UI_Init(Gauge_GetData);  // live sensor snapshot from core 0
 #endif
   Serial.println("Panel up.");
 }
 
-void loop()
-{
+void loop() {
   Lvgl_Loop();
   vTaskDelay(pdMS_TO_TICKS(5));
 }
