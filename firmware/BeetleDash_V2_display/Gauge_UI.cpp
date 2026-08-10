@@ -2,6 +2,9 @@
 #include "Config.h"
 #include <lvgl.h>
 #include <math.h>
+#include <esp_heap_caps.h>
+
+extern const lv_img_dsc_t beetle_icon;   // beetle_icon.c (A8 silhouette, recolored at runtime)
 
 // ---------- Palette: 1965 VW/VDO instrument family (docs/V3_vintage_ui_brief.md §0) ----------
 #define COL_FACE      0x141414   // matte near-black gauge face
@@ -200,15 +203,29 @@ static void build_fuel(lv_obj_t *tile)
   make_wordmark(tile);
 }
 
+// 1965 VDO speedometer: 0–80 sage numerals, 0 at ~7 o'clock sweeping clockwise
+// to 80 at ~5 o'clock, long cream needle on a silver hub.
 static void build_speed(lv_obj_t *tile)
 {
   make_bezel(tile);
-  make_caption(tile, "SPEED", LV_ALIGN_TOP_MID, 0, 56);
-  speedValue = make_label(tile, &lv_font_montserrat_48, COL_TEXT, LV_ALIGN_CENTER, 0, -40, "--");
-  make_huge(speedValue);
-  make_label(tile, &lv_font_montserrat_24, COL_MUTED, LV_ALIGN_CENTER, 0, 36, "mph");
-  speedKmh = make_label(tile, &lv_font_montserrat_20, COL_FAINT, LV_ALIGN_CENTER, 0, 76, "-- km/h");
-  speedSats = make_label(tile, &lv_font_montserrat_14, COL_FAINT, LV_ALIGN_BOTTOM_MID, 0, -70, "acquiring fix...");
+
+  speedMeter = make_bare_meter(tile, 430);
+  lv_obj_center(speedMeter);
+
+  lv_meter_scale_t *sc = lv_meter_add_scale(speedMeter);
+  lv_meter_set_scale_range(speedMeter, sc, 0, 80, 270, 135);    // 0 @ 7 o'clock → 80 @ 5 o'clock
+  lv_meter_set_scale_ticks(speedMeter, sc, 17, 3, 14, lv_color_hex(COL_CREAM));      // every 5 mph
+  lv_meter_set_scale_major_ticks(speedMeter, sc, 2, 6, 26, lv_color_hex(COL_CREAM), 24); // every 10
+  lv_obj_set_style_text_font(speedMeter, &lv_font_montserrat_28, LV_PART_TICKS);
+  lv_obj_set_style_text_color(speedMeter, lv_color_hex(COL_SAGE), LV_PART_TICKS);    // sage numerals
+
+  speedNeedle = lv_meter_add_needle_line(speedMeter, sc, 6, lv_color_hex(COL_CREAM), -14);
+  lv_meter_set_indicator_value(speedMeter, speedNeedle, 0);
+
+  make_hub(tile, 64, 0, 0, true);                               // silver speedo hub
+  make_caption(tile, "MPH", LV_ALIGN_CENTER, 0, 72);
+  speedDigital = make_label(tile, &lv_font_montserrat_28, COL_CREAM, LV_ALIGN_CENTER, 0, 118, "--");
+  speedSats = make_label(tile, &lv_font_montserrat_14, COL_FAINT, LV_ALIGN_CENTER, 0, 152, "acquiring fix...");
   make_wordmark(tile);
 }
 
@@ -353,9 +370,10 @@ static void refresh_cb(lv_timer_t *t)
   lv_meter_set_indicator_value(fuelMeter, fuelNeedle, fuelPct);
   lv_label_set_text_fmt(fuelDigital, "%d%%", fuelPct);
 
-  // --- Speed ---
-  lv_label_set_text_fmt(speedValue, "%d", (int)(d.speedMph + 0.5f));
-  lv_label_set_text_fmt(speedKmh, "%d km/h", (int)(d.speedMph * 1.609344f + 0.5f));
+  // --- Speed (VDO speedometer) ---
+  int mph = (int)(d.speedMph + 0.5f);
+  lv_meter_set_indicator_value(speedMeter, speedNeedle, mph > 80 ? 80 : mph);
+  lv_label_set_text_fmt(speedDigital, "%d", mph);
   lv_label_set_text_fmt(speedSats, "%d sats · %s", d.sats, d.fix ? "fix" : "no fix");
 
   // --- Volts (VDO voltmeter) ---
