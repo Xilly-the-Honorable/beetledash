@@ -36,8 +36,9 @@ static gauge_data_provider_t dataProvider = NULL;
 static lv_obj_t *tileview;
 static lv_obj_t *dots[SCREEN_COUNT];
 
-// Fuel screen
-static lv_obj_t *fuelArc, *fuelValue;
+// Fuel screen (TANK)
+static lv_obj_t *fuelMeter, *fuelDigital;
+static lv_meter_indicator_t *fuelNeedle;
 // Speed screen
 static lv_obj_t *speedValue, *speedKmh, *speedSats;
 // Volts screen
@@ -128,43 +129,71 @@ static uint32_t volt_color(float v)
   return COL_GREEN;
 }
 
-static uint32_t fuel_color(float pct)
+// Bare meter: no background, no border — just scale, ticks, and needle.
+static lv_obj_t *make_bare_meter(lv_obj_t *parent, lv_coord_t size)
 {
-  if (pct < 15.0f) return COL_RED;
-  if (pct < 30.0f) return COL_AMBER;
-  return COL_GREEN;
+  lv_obj_t *m = lv_meter_create(parent);
+  lv_obj_set_size(m, size, size);
+  lv_obj_set_style_bg_opa(m, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(m, 0, 0);
+  lv_obj_set_style_pad_all(m, 0, 0);
+  lv_obj_clear_flag(m, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+  return m;
+}
+
+// Needle hub: volt-style dark cap with a thin chrome edge, or silver speedo cap.
+static void make_hub(lv_obj_t *tile, lv_coord_t d, lv_coord_t x, lv_coord_t y, bool silver)
+{
+  lv_obj_t *hub = make_circle(tile, d, silver ? COL_HUB_SILVER : COL_HUB_DARK);
+  if (!silver) {
+    lv_obj_set_style_border_width(hub, 2, 0);
+    lv_obj_set_style_border_color(hub, lv_color_hex(COL_BEZEL), 0);
+  }
+  lv_obj_align(hub, LV_ALIGN_CENTER, x, y);
 }
 
 // ============================================================
 //  Screen builders
 // ============================================================
+// Original VW "TANK" gauge: needle pivots at bottom center, sweeping ~100°
+// across the top of the face. R (reserve) left, 1/2 middle, 1/1 right.
+static void fuel_tick_label_cb(lv_event_t *e)
+{
+  lv_obj_draw_part_dsc_t *dsc = lv_event_get_draw_part_dsc(e);
+  if (dsc->type != LV_METER_DRAW_PART_TICK || dsc->text == NULL) return;
+  if (dsc->value == 0)       dsc->text = (char *)"R";
+  else if (dsc->value == 50) dsc->text = (char *)"1/2";
+  else if (dsc->value == 100)dsc->text = (char *)"1/1";
+}
+
 static void build_fuel(lv_obj_t *tile)
 {
   make_bezel(tile);
-  make_caption(tile, "FUEL", LV_ALIGN_TOP_MID, 0, 56);
 
-  fuelArc = lv_arc_create(tile);
-  lv_obj_set_size(fuelArc, 360, 360);
-  lv_obj_center(fuelArc);
-  lv_arc_set_rotation(fuelArc, 135);
-  lv_arc_set_bg_angles(fuelArc, 0, 270);
-  lv_arc_set_range(fuelArc, 0, 100);
-  lv_arc_set_value(fuelArc, 0);
-  lv_obj_remove_style(fuelArc, NULL, LV_PART_KNOB);          // gauge, not a slider
-  lv_obj_clear_flag(fuelArc, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_style_arc_width(fuelArc, 22, LV_PART_MAIN);
-  lv_obj_set_style_arc_width(fuelArc, 22, LV_PART_INDICATOR);
-  lv_obj_set_style_arc_color(fuelArc, lv_color_hex(COL_CARD), LV_PART_MAIN);
-  lv_obj_set_style_arc_color(fuelArc, lv_color_hex(COL_GREEN), LV_PART_INDICATOR);
-  lv_obj_set_style_arc_rounded(fuelArc, true, LV_PART_INDICATOR);
+  // Pivot sits at (240, 340) — meter is oversized so its center lands there.
+  const lv_coord_t msize = 540, pivotY = 340;
+  fuelMeter = make_bare_meter(tile, msize);
+  lv_obj_set_pos(fuelMeter, 240 - msize / 2, pivotY - msize / 2);
 
-  // E / F at the arc ends (bottom-left / bottom-right of the 270° sweep)
-  make_label(tile, &lv_font_montserrat_20, COL_FAINT, LV_ALIGN_CENTER, -105, 148, "E");
-  make_label(tile, &lv_font_montserrat_20, COL_FAINT, LV_ALIGN_CENTER, 105, 148, "F");
+  lv_meter_scale_t *sc = lv_meter_add_scale(fuelMeter);
+  lv_meter_set_scale_range(fuelMeter, sc, 0, 100, 100, 220);  // 100° sweep across the top
+  lv_meter_set_scale_ticks(fuelMeter, sc, 11, 3, 16, lv_color_hex(COL_CREAM));       // every 10%
+  lv_meter_set_scale_major_ticks(fuelMeter, sc, 5, 6, 30, lv_color_hex(COL_CREAM), 30); // R, 1/2, 1/1
+  lv_obj_set_style_text_font(fuelMeter, &lv_font_montserrat_24, LV_PART_TICKS);
+  lv_obj_set_style_text_color(fuelMeter, lv_color_hex(COL_CREAM), LV_PART_TICKS);
+  lv_obj_add_event_cb(fuelMeter, fuel_tick_label_cb, LV_EVENT_DRAW_PART_BEGIN, NULL);
 
-  fuelValue = make_label(tile, &lv_font_montserrat_48, COL_TEXT, LV_ALIGN_CENTER, 0, -10, "--");
-  make_huge(fuelValue);
-  make_label(tile, &lv_font_montserrat_20, COL_MUTED, LV_ALIGN_CENTER, 0, 64, "%");
+  // Red reserve wedge over the first ~12%
+  lv_meter_indicator_t *reserve = lv_meter_add_arc(fuelMeter, sc, 10, lv_color_hex(COL_RED), 0);
+  lv_meter_set_indicator_start_value(fuelMeter, reserve, 0);
+  lv_meter_set_indicator_end_value(fuelMeter, reserve, 12);
+
+  fuelNeedle = lv_meter_add_needle_line(fuelMeter, sc, 6, lv_color_hex(COL_CREAM), -36);
+  lv_meter_set_indicator_value(fuelMeter, fuelNeedle, 0);
+
+  make_hub(tile, 56, 0, pivotY - 240, false);                 // dark cap, chrome edge
+  fuelDigital = make_label(tile, &lv_font_montserrat_20, COL_FAINT, LV_ALIGN_CENTER, 0, 20, "--%");
+  make_caption(tile, "TANK", LV_ALIGN_CENTER, 0, 146);
   make_wordmark(tile);
 }
 
@@ -293,10 +322,10 @@ static void refresh_cb(lv_timer_t *t)
   GaugeData d;
   dataProvider(&d);
 
-  // --- Fuel ---
-  lv_arc_set_value(fuelArc, (int)(d.fuelPct + 0.5f));
-  lv_obj_set_style_arc_color(fuelArc, lv_color_hex(fuel_color(d.fuelPct)), LV_PART_INDICATOR);
-  lv_label_set_text_fmt(fuelValue, "%d", (int)(d.fuelPct + 0.5f));
+  // --- Fuel (TANK) ---
+  int fuelPct = (int)(d.fuelPct + 0.5f);
+  lv_meter_set_indicator_value(fuelMeter, fuelNeedle, fuelPct);
+  lv_label_set_text_fmt(fuelDigital, "%d%%", fuelPct);
 
   // --- Speed ---
   lv_label_set_text_fmt(speedValue, "%d", (int)(d.speedMph + 0.5f));
