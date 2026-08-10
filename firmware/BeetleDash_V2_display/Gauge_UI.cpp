@@ -50,8 +50,8 @@ static lv_obj_t *voltMeter, *voltDigital;
 static lv_meter_indicator_t *voltNeedle;
 // Clock screen
 static lv_obj_t *clockValue, *clockSub;
-// Compass screen
-static lv_obj_t *compassValue, *compassCardinal, *compassCardLabels[8];
+// Compass screen (aviation direction indicator)
+static lv_obj_t *compassCard, *compassReadout;
 
 static const char *CARDINALS[8] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
 
@@ -289,30 +289,89 @@ static void build_clock(lv_obj_t *tile)
   make_wordmark(tile);
 }
 
+// Aviation direction indicator: the card (ticks + numerals + cardinals) is drawn
+// ONCE onto a canvas in PSRAM, then rotated as a whole with lv_img_set_angle()
+// (card angle = -heading). The beetle icon and lubber line stay fixed on top.
+#define CARD_SIZE 420
+#define CARD_C    (CARD_SIZE / 2)
+
+static void draw_compass_card(lv_obj_t *canvas)
+{
+  lv_canvas_fill_bg(canvas, lv_color_black(), LV_OPA_TRANSP);
+
+  lv_draw_line_dsc_t ld;
+  lv_draw_line_dsc_init(&ld);
+  ld.color = lv_color_hex(COL_CREAM);
+
+  for (int deg = 0; deg < 360; deg += 5) {
+    bool major = (deg % 10) == 0;
+    ld.width = major ? 3 : 2;
+    float a = deg * (float)M_PI / 180.0f;
+    float sx = sinf(a), cy = -cosf(a);
+    lv_coord_t r1 = CARD_C - 2, r2 = CARD_C - (major ? 22 : 13);
+    lv_point_t pts[2] = {
+      { (lv_coord_t)(CARD_C + r1 * sx), (lv_coord_t)(CARD_C + r1 * cy) },
+      { (lv_coord_t)(CARD_C + r2 * sx), (lv_coord_t)(CARD_C + r2 * cy) },
+    };
+    lv_canvas_draw_line(canvas, pts, 2, &ld);
+  }
+
+  // Numerals every 30°: N/E/S/W in amber at the cardinals, tens-of-degrees
+  // (3, 6, 12, 15, 21, 24, 30, 33) in cream between them.
+  lv_draw_label_dsc_t td;
+  lv_draw_label_dsc_init(&td);
+  td.align = LV_TEXT_ALIGN_CENTER;
+  const lv_coord_t rText = CARD_C - 52;
+  for (int i = 0; i < 12; i++) {
+    int deg = i * 30;
+    bool cardinal = (deg % 90) == 0;
+    td.font  = cardinal ? &lv_font_montserrat_28 : &lv_font_montserrat_24;
+    td.color = lv_color_hex(cardinal ? COL_YELLOW : COL_CREAM);
+    char buf[4];
+    if (cardinal) buf[0] = "NESW"[deg / 90], buf[1] = '\0';
+    else          lv_snprintf(buf, sizeof(buf), "%d", deg / 10);
+    float a = deg * (float)M_PI / 180.0f;
+    lv_coord_t x = (lv_coord_t)(CARD_C + rText * sinf(a));
+    lv_coord_t y = (lv_coord_t)(CARD_C - rText * cosf(a));
+    lv_canvas_draw_text(canvas, x - 40, y - 16, 80, &td, buf);
+  }
+}
+
 static void build_compass(lv_obj_t *tile)
 {
   make_bezel(tile);
-  make_caption(tile, "COMPASS", LV_ALIGN_TOP_MID, 0, 56);
 
-  // Fixed lubber line at 12 o'clock; the cardinal ring rotates beneath it.
-  lv_obj_t *marker = lv_obj_create(tile);
-  lv_obj_set_size(marker, 6, 26);
-  lv_obj_set_style_bg_color(marker, lv_color_hex(COL_RED), 0);
-  lv_obj_set_style_border_width(marker, 0, 0);
-  lv_obj_set_style_radius(marker, 3, 0);
-  lv_obj_align(marker, LV_ALIGN_CENTER, 0, -160);
+  // Card canvas lives in PSRAM (ARGB, ~530 KB) — drawn once, rotated per update.
+  static lv_color_t *cardBuf = NULL;
+  if (cardBuf == NULL)
+    cardBuf = (lv_color_t *)heap_caps_malloc(
+        LV_CANVAS_BUF_SIZE_TRUE_COLOR_ALPHA(CARD_SIZE, CARD_SIZE), MALLOC_CAP_SPIRAM);
 
-  for (int i = 0; i < 8; i++) {
-    bool major = (i % 2) == 0;
-    compassCardLabels[i] = make_label(tile,
-        major ? &lv_font_montserrat_28 : &lv_font_montserrat_16,
-        i == 0 ? COL_RED : (major ? COL_TEXT : COL_FAINT),
-        LV_ALIGN_CENTER, 0, 0, CARDINALS[i]);
-  }
+  compassCard = lv_canvas_create(tile);
+  lv_canvas_set_buffer(compassCard, cardBuf, CARD_SIZE, CARD_SIZE, LV_IMG_CF_TRUE_COLOR_ALPHA);
+  lv_obj_center(compassCard);
+  draw_compass_card(compassCard);
+  lv_img_set_pivot(compassCard, CARD_C, CARD_C);
 
-  compassValue = make_label(tile, &lv_font_montserrat_48, COL_TEXT, LV_ALIGN_CENTER, 0, -10, "---");
-  make_huge(compassValue);
-  compassCardinal = make_label(tile, &lv_font_montserrat_28, COL_MUTED, LV_ALIGN_CENTER, 0, 70, "-");
+  // Fixed beetle silhouette, instrument orange, nose up — the card turns around it.
+  lv_obj_t *ic = lv_img_create(tile);
+  lv_img_set_src(ic, &beetle_icon);
+  lv_obj_set_style_img_recolor(ic, lv_color_hex(COL_ORANGE), 0);
+  lv_obj_set_style_img_recolor_opa(ic, LV_OPA_COVER, 0);
+  lv_img_set_zoom(ic, 230);                     // 200 px tall art → ~180 px (~40% of face)
+  lv_obj_center(ic);
+
+  // Fixed orange lubber line at 12 o'clock, over the card edge.
+  lv_obj_t *lubber = lv_obj_create(tile);
+  lv_obj_set_size(lubber, 6, 30);
+  lv_obj_set_style_bg_color(lubber, lv_color_hex(COL_ORANGE), 0);
+  lv_obj_set_style_bg_opa(lubber, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(lubber, 0, 0);
+  lv_obj_set_style_radius(lubber, 2, 0);
+  lv_obj_clear_flag(lubber, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_align(lubber, LV_ALIGN_CENTER, 0, -(CARD_C - 12));
+
+  compassReadout = make_label(tile, &lv_font_montserrat_24, COL_CREAM, LV_ALIGN_CENTER, 0, 146, "---");
   make_wordmark(tile);
 }
 
@@ -387,18 +446,18 @@ static void refresh_cb(lv_timer_t *t)
   lv_label_set_text(clockValue, d.clock);
   lv_label_set_text(clockSub, d.fix ? "GPS time" : "waiting for GPS time");
 
-  // --- Compass ---
+  // --- Compass (direction indicator) ---
+  // Card angle = -heading, in LVGL 0.1° units. Skip the (expensive) rotation
+  // redraw entirely when the heading hasn't moved.
   int hdg = (int)(d.headingDeg + 0.5f) % 360;
-  lv_label_set_text_fmt(compassValue, "%d°", hdg);
-  int card = ((int)((d.headingDeg + 22.5f) / 45.0f)) % 8;
-  lv_label_set_text(compassCardinal, CARDINALS[card]);
-  // Rotate the cardinal ring so the current heading sits under the top marker.
-  const float r = 190.0f;
-  for (int i = 0; i < 8; i++) {
-    float a = (i * 45.0f - d.headingDeg) * (float)M_PI / 180.0f;
-    lv_obj_align(compassCardLabels[i], LV_ALIGN_CENTER,
-                 (lv_coord_t)lroundf(r * sinf(a)), (lv_coord_t)lroundf(-r * cosf(a)));
+  static int lastAngle = -1;
+  int angle = (3600 - (int)(d.headingDeg * 10.0f + 0.5f) % 3600) % 3600;
+  if (angle != lastAngle) {
+    lastAngle = angle;
+    lv_img_set_angle(compassCard, angle);
   }
+  int card = ((int)((d.headingDeg + 22.5f) / 45.0f)) % 8;
+  lv_label_set_text_fmt(compassReadout, "%d° %s", hdg, CARDINALS[card]);
 }
 
 // ============================================================
