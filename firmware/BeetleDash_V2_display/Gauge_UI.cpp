@@ -42,9 +42,11 @@ static lv_obj_t *dots[SCREEN_COUNT];
 
 // Fuel screen (TANK)
 static lv_obj_t *fuelMeter, *fuelDigital, *fuelAlert;
+static lv_obj_t *fuelEyeL, *fuelEyeR;    // blinking headlight overlays on the mascot
 static lv_meter_indicator_t *fuelNeedle;
 #define FUEL_ALERT_BELOW 25.0f   // show the "FUEL LOW" alert under this %
 #define COL_ALERT 0xE0452F       // brighter warning red-orange (alert only)
+#define COL_LAMP  0xFFD84A       // lit-headlight yellow (alert only)
 // Speed screen (VDO speedometer)
 static lv_obj_t *speedMeter, *speedDigital, *speedSats;
 static lv_meter_indicator_t *speedNeedle;
@@ -245,6 +247,19 @@ static void build_fuel(lv_obj_t *tile)
 
   lv_obj_t *worried = lv_img_create(fuelAlert);
   lv_img_set_src(worried, &beetle_front_worried);
+
+  // Headlight "flashers": yellow circles over the eyes (centers ~(22,63) and
+  // (100,63) in the 122x100 art), blinked from refresh_cb while the alert shows.
+  fuelEyeL = make_circle(worried, 20, COL_LAMP);
+  fuelEyeR = make_circle(worried, 20, COL_LAMP);
+  lv_obj_align(fuelEyeL, LV_ALIGN_TOP_LEFT, 12, 53);
+  lv_obj_align(fuelEyeR, LV_ALIGN_TOP_LEFT, 90, 53);
+  lv_obj_t *eyes[2] = { fuelEyeL, fuelEyeR };
+  for (int i = 0; i < 2; i++) {
+    lv_obj_set_style_border_width(eyes[i], 3, 0);
+    lv_obj_set_style_border_color(eyes[i], lv_color_hex(COL_ORANGE), 0);
+    lv_obj_set_style_opa(eyes[i], LV_OPA_TRANSP, 0);   // start dark
+  }
 
   lv_obj_align(fuelAlert, LV_ALIGN_CENTER, 0, 6);
   lv_obj_add_flag(fuelAlert, LV_OBJ_FLAG_HIDDEN);
@@ -524,6 +539,19 @@ static void refresh_cb(lv_timer_t *t)
     } else {
       lv_obj_add_flag(fuelAlert, LV_OBJ_FLAG_HIDDEN);
       lv_obj_clear_flag(fuelDigital, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+
+  // Blink the headlight-eyes while the alert is up: 400 ms on / 400 ms off
+  // (refresh runs every 100 ms), only touching styles on actual transitions.
+  if (low) {
+    static uint8_t blinkTick = 0;
+    static bool lampsOn = false;
+    bool on = ((++blinkTick / 4) & 1) != 0;
+    if (on != lampsOn) {
+      lampsOn = on;
+      lv_obj_set_style_opa(fuelEyeL, on ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+      lv_obj_set_style_opa(fuelEyeR, on ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
     }
   }
 
