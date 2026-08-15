@@ -34,6 +34,18 @@
 // ---------- GPS update rate ----------
 #define GPS_RATE_MS 200          // 5 Hz — sent at boot as UBX (NEO-M8N) + PMTK fallback
 
+// ---------- Dual-circuit brake monitor (V4) ----------
+// A2/A3 tap the two brake-light switch outputs through 47k/10k dividers
+// (docs/PROJECT_CONTEXT.md §5). ~2.2 V at the ADC = circuit pressurized.
+// IMPORTANT: leave DISABLED until the dividers are physically wired — floating
+// ADS inputs drift and could latch a phantom fault. UI_DEMO_MODE stages a fake
+// fault for reviewing the alert flow without hardware.
+#define BRAKE_MONITOR_ENABLED 0
+#define BRAKE_V_SET  0.50f       // ADC volts, rising  -> circuit pressurized
+#define BRAKE_V_CLR  0.35f       // ADC volts, falling -> circuit released (hysteresis)
+#define BRAKE_XOR_MS 1000        // one-sided pressure sustained this long = latched fault
+                                 // (1 s rejects transient XOR from unequal switch closing points)
+
 // ---------- WiFi Access Point (phone dashboard) ----------
 #define AP_SSID "BeetleDash"
 #define AP_PASS "beetle1234"     // >= 8 chars

@@ -75,7 +75,23 @@ ADS1115 gain = **GAIN_ONE (±4.096 V)**. Powered from 3V3.
 - `Vbatt = Vnode * (47000 + 10000) / 10000` = `Vnode * 5.7`. Healthy: ~13.8–14.4 V running, ~12.4–12.7 V rest.
 - Voltage calibration = trim the 5.7 ratio to match a multimeter.
 
-**A2 / A3** — unused (spare for future).
+**A2 / A3 — brake circuits 1 / 2** (V4 dual-circuit brake monitor; no longer spare):
+- Each taps a brake-light switch output through the same 47k/10k divider as A1
+  (~2.2 V at the ADC when that circuit has hydraulic pressure, ~0 V released —
+  the open switch drains to ground through the brake-light bulbs).
+- 0.1 µF from each ADC node to GND is REQUIRED (automotive transients).
+  Recommended: 3.6 V zener from each node to GND (retrofit A1 too).
+- Firmware thresholds (Config.h): `BRAKE_V_SET 0.50` / `BRAKE_V_CLR 0.35` (ADC volts,
+  hysteresis; low enough that a 3V3/5V bench feed through the divider registers).
+- Fault = XOR of the two switches sustained ≥ 1 s (`BRAKE_XOR_MS`), latched; cleared by
+  power cycle or 3 s long-press on the acknowledged banner.
+- `BRAKE_MONITOR_ENABLED` in Config.h stays **0 until the dividers are wired** —
+  floating ADS inputs could latch a phantom fault.
+- The switches' third (warning) terminals are deliberately unused: the ADC approach
+  supersedes the factory scheme (latching, per-circuit ID, display/phone integration).
+- **Known limitations:** a failure is only observable while the pedal is pressed (hence
+  the latch); both switches dead is indistinguishable from "not braking" (same blind
+  spot as the factory warning-lamp scheme). Out of scope.
 
 ---
 

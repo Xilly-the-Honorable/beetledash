@@ -23,6 +23,9 @@ static int   sats = 0;
 static bool  gpsFix = false;
 static float fuelEMA = -1, voltEMA = -1;   // smoothing state
 
+// Dual-circuit brake monitor (V4): hysteresis state of the two switch taps.
+static bool brakeSw1 = false, brakeSw2 = false;
+
 // Shared snapshot for the UI core — single writer (this task), single reader (LVGL).
 static GaugeData shared;
 static portMUX_TYPE sharedMux = portMUX_INITIALIZER_UNLOCKED;
@@ -149,6 +152,16 @@ static void updateAnalog() {
   float vbat = vDiv * (VOLT_R1 + VOLT_R2) / VOLT_R2 * VOLT_TRIM;
   voltEMA = (voltEMA < 0) ? vbat : (voltEMA * 0.8f + vbat * 0.2f);
   battV = voltEMA;
+
+#if BRAKE_MONITOR_ENABLED
+  // --- Brake circuits (A2 / A3), volts at the ADC node with hysteresis ---
+  I2C_Lock();
+  float vB1 = ads.computeVolts(ads.readADC_SingleEnded(2));
+  float vB2 = ads.computeVolts(ads.readADC_SingleEnded(3));
+  I2C_Unlock();
+  brakeSw1 = brakeSw1 ? (vB1 > BRAKE_V_CLR) : (vB1 > BRAKE_V_SET);
+  brakeSw2 = brakeSw2 ? (vB2 > BRAKE_V_CLR) : (vB2 > BRAKE_V_SET);
+#endif
 }
 
 static void updateGps() {
@@ -258,13 +271,15 @@ setInterval(tick,400); tick();
 static void handleRoot() { server.send_P(200, "text/html", PAGE); }
 
 static void handleData() {
-  char buf[220];
+  char buf[300];
   GaugeData d;
   Gauge_GetData(&d);
   snprintf(buf, sizeof(buf),
-    "{\"fuel\":%.1f,\"volts\":%.2f,\"speed\":%.1f,\"heading\":%.1f,\"sats\":%d,\"fix\":%s,\"mag\":\"%s\",\"clock\":\"%s\"}",
+    "{\"fuel\":%.1f,\"volts\":%.2f,\"speed\":%.1f,\"heading\":%.1f,\"sats\":%d,\"fix\":%s,\"mag\":\"%s\",\"clock\":\"%s\","
+    "\"brake1\":%s,\"brake2\":%s,\"brakeFault\":%u}",
     d.fuelPct, d.battV, d.speedMph, d.headingDeg, d.sats, d.fix ? "true" : "false",
-    d.magName, d.clock);
+    d.magName, d.clock,
+    d.brake1 ? "true" : "false", d.brake2 ? "true" : "false", d.brakeFault);
   server.send(200, "application/json", buf);
 }
 
@@ -279,6 +294,9 @@ static void publishData() {
   d.headingDeg = smartHeading();
   d.sats       = sats;
   d.fix        = gpsFix;
+  d.brake1     = brakeSw1;
+  d.brake2     = brakeSw2;
+  d.brakeFault = BRAKE_FAULT_NONE;   // fault latch lands in the next milestone
   updateClock(d.clock);
   strncpy(d.magName, magAddr == 0x0D ? "QMC5883L" : magAddr == 0x1E ? "HMC5883L" :
                      magIsIST ? "IST8310" : "none", sizeof(d.magName));
@@ -309,8 +327,9 @@ static void sensorTask(void *param) {
     server.handleClient();
     if (millis() - tLog > 1000) {
       tLog = millis();
-      Serial.printf("fuel %.0f%%  batt %.2fV  spd %.1f  hdg %.0f  sats %d  %s\n",
-                    fuelPct, battV, speedMph, headingDeg, sats, gpsFix ? "fix" : "no fix");
+      Serial.printf("fuel %.0f%%  batt %.2fV  spd %.1f  hdg %.0f  sats %d  %s  brk %d/%d\n",
+                    fuelPct, battV, speedMph, headingDeg, sats, gpsFix ? "fix" : "no fix",
+                    brakeSw1, brakeSw2);
     }
     vTaskDelay(pdMS_TO_TICKS(2));    // yield; keeps WiFi/idle task fed on core 0
   }
