@@ -477,6 +477,117 @@ static void build_compass(lv_obj_t *tile)
 }
 
 // ============================================================
+//  Brake fault alert (V4) — full-screen overlay + acknowledged banner.
+//  Lives on lv_layer_top() so it superposes any tile; created AFTER the page
+//  dots so it covers them. The overlay eats all touch input.
+// ============================================================
+static lv_obj_t *brakeOverlay, *brakeOverlayLine2, *brakeBanner, *brakeBannerLabel;
+static uint8_t brakeShownFault = BRAKE_FAULT_NONE;  // fault the overlay/banner displays
+static uint8_t brakeAcked = BRAKE_FAULT_NONE;       // fault already acknowledged to banner
+static uint32_t bannerPressStart = 0;               // 3 s long-press-to-clear tracking
+
+static void brake_overlay_click_cb(lv_event_t *e)
+{
+  // Acknowledge: collapse the overlay to the persistent banner.
+  brakeAcked = brakeShownFault;
+  lv_obj_add_flag(brakeOverlay, LV_OBJ_FLAG_HIDDEN);
+  lv_label_set_text_fmt(brakeBannerLabel, "BRAKE FAULT C%d", brakeAcked);
+  lv_obj_clear_flag(brakeBanner, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void brake_banner_press_cb(lv_event_t *e)
+{
+  lv_event_code_t code = lv_event_get_code(e);
+  if (code == LV_EVENT_PRESSED) bannerPressStart = lv_tick_get();
+  else bannerPressStart = 0;   // RELEASED or PRESS_LOST
+}
+
+static void build_brake_alert(void)
+{
+  // Full-screen loud overlay
+  brakeOverlay = lv_obj_create(lv_layer_top());
+  lv_obj_set_size(brakeOverlay, LV_HOR_RES, LV_VER_RES);
+  lv_obj_set_pos(brakeOverlay, 0, 0);
+  lv_obj_set_style_radius(brakeOverlay, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_color(brakeOverlay, lv_color_hex(COL_FACE), 0);
+  lv_obj_set_style_bg_opa(brakeOverlay, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(brakeOverlay, 14, 0);
+  lv_obj_set_style_border_color(brakeOverlay, lv_color_hex(COL_RED), 0);
+  lv_obj_clear_flag(brakeOverlay, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(brakeOverlay, LV_OBJ_FLAG_CLICKABLE);   // eats taps AND swipes
+  lv_obj_add_event_cb(brakeOverlay, brake_overlay_click_cb, LV_EVENT_CLICKED, NULL);
+
+  lv_obj_t *word = make_label(brakeOverlay, &lv_font_montserrat_48, COL_CREAM,
+                              LV_ALIGN_CENTER, 0, -70, "BRAKE");
+  lv_obj_set_style_text_letter_space(word, 10, 0);
+  brakeOverlayLine2 = make_label(brakeOverlay, &lv_font_montserrat_28, COL_CREAM,
+                                 LV_ALIGN_CENTER, 0, 14, "CIRCUIT - FAILED");
+  make_label(brakeOverlay, &lv_font_montserrat_16, COL_FAINT,
+             LV_ALIGN_CENTER, 0, 92, "tap to acknowledge");
+  lv_obj_add_flag(brakeOverlay, LV_OBJ_FLAG_HIDDEN);
+
+  // Acknowledged: persistent red banner. y=56 + width 300 keeps it inside the
+  // circular bezel chord (full-width at y=0 would be clipped by the round face).
+  brakeBanner = lv_obj_create(lv_layer_top());
+  lv_obj_set_size(brakeBanner, 300, 48);
+  lv_obj_align(brakeBanner, LV_ALIGN_TOP_MID, 0, 56);
+  lv_obj_set_style_radius(brakeBanner, 12, 0);
+  lv_obj_set_style_bg_color(brakeBanner, lv_color_hex(COL_RED), 0);
+  lv_obj_set_style_bg_opa(brakeBanner, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(brakeBanner, 0, 0);
+  lv_obj_clear_flag(brakeBanner, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(brakeBanner, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(brakeBanner, brake_banner_press_cb, LV_EVENT_PRESSED, NULL);
+  lv_obj_add_event_cb(brakeBanner, brake_banner_press_cb, LV_EVENT_RELEASED, NULL);
+  lv_obj_add_event_cb(brakeBanner, brake_banner_press_cb, LV_EVENT_PRESS_LOST, NULL);
+
+  brakeBannerLabel = make_label(brakeBanner, &lv_font_montserrat_20, COL_CREAM,
+                                LV_ALIGN_CENTER, 0, 0, "BRAKE FAULT C-");
+  lv_obj_set_style_text_letter_space(brakeBannerLabel, 2, 0);
+  lv_obj_add_flag(brakeBanner, LV_OBJ_FLAG_HIDDEN);
+}
+
+// Called from refresh_cb with the fresh snapshot: raises/blinks/clears the alert.
+static void brake_sync(const GaugeData &d)
+{
+  if (d.brakeFault == BRAKE_FAULT_NONE) {
+    // Fault gone (power-cycle semantics, long-press clear, or demo cycle ended)
+    if (brakeShownFault != BRAKE_FAULT_NONE || brakeAcked != BRAKE_FAULT_NONE) {
+      brakeShownFault = brakeAcked = BRAKE_FAULT_NONE;
+      lv_obj_add_flag(brakeOverlay, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(brakeBanner, LV_OBJ_FLAG_HIDDEN);
+    }
+    return;
+  }
+
+  if (d.brakeFault != brakeAcked) {
+    // New (or different-circuit) fault: raise the full overlay
+    if (d.brakeFault != brakeShownFault || lv_obj_has_flag(brakeOverlay, LV_OBJ_FLAG_HIDDEN)) {
+      brakeShownFault = d.brakeFault;
+      lv_label_set_text_fmt(brakeOverlayLine2, "CIRCUIT %d FAILED", d.brakeFault);
+      lv_obj_clear_flag(brakeOverlay, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(brakeBanner, LV_OBJ_FLAG_HIDDEN);
+    }
+    // Blink the red border ring ~1 Hz (refresh runs every 100 ms)
+    static uint8_t blink = 0;
+    static bool ringOn = true;
+    bool on = ((++blink / 5) & 1) == 0;
+    if (on != ringOn) {
+      ringOn = on;
+      lv_obj_set_style_border_opa(brakeOverlay, on ? LV_OPA_COVER : LV_OPA_20, 0);
+    }
+  }
+
+  // 3 s long-press on the banner = clear the latch (false-latch escape hatch)
+  if (bannerPressStart != 0 && lv_tick_elaps(bannerPressStart) >= 3000) {
+    bannerPressStart = 0;
+    Sensors_ClearBrakeFault();
+    brakeShownFault = brakeAcked = BRAKE_FAULT_NONE;
+    lv_obj_add_flag(brakeBanner, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+// ============================================================
 //  Page dots
 // ============================================================
 static void update_dots(int active)
@@ -590,6 +701,9 @@ static void refresh_cb(lv_timer_t *t)
   }
   int card = ((int)((d.headingDeg + 22.5f) / 45.0f)) % 8;
   lv_label_set_text_fmt(compassReadout, "%d° %s", hdg, CARDINALS[card]);
+
+  // --- Brake fault alert (V4) — outranks everything on the display ---
+  brake_sync(d);
 }
 
 // ============================================================
@@ -611,6 +725,7 @@ void Gauge_UI_Init(gauge_data_provider_t provider)
   build_clock(make_tile(3));
   build_compass(make_tile(4));
   build_dots();
+  build_brake_alert();   // after the dots: same top layer, must cover them
 
   lv_timer_create(refresh_cb, 100, NULL);   // ~10 Hz UI refresh from the data provider
 }

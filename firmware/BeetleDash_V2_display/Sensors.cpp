@@ -246,8 +246,11 @@ h1{font-size:15px;letter-spacing:.15em;color:#7d8ea0;text-transform:uppercase;ma
 .n{top:6px}.s{bottom:22px}.e{right:8px}.w{left:8px}
 .sub{font-size:12px;color:#7d8ea0;margin-top:6px}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:1px}
+.brk{display:none;background:#B3352C;color:#fff;text-align:center;border-radius:12px;
+  padding:12px;font-weight:700;letter-spacing:.12em;margin-bottom:12px}
 </style></head><body>
 <h1>BeetleDash &middot; V2</h1>
+<div class=brk id=brk>BRAKE FAULT</div>
 <div class=grid>
   <div class="card"><div class=lbl>Speed</div>
     <div class=val id=spd>--<span class=unit> mph</span></div>
@@ -278,6 +281,8 @@ async function tick(){
   gps.textContent=d.fix?(d.sats+' sats · fix'):(d.sats+' sats · no fix');
   const dc=d.volts<11.8?'#e5484d':(d.volts>14.6?'#f5a623':'#3fb950');
   vstat.innerHTML='<span class=dot style=background:'+dc+'></span>'+(d.volts<11.8?'low':(d.volts>14.6?'high':'ok'));
+  if(d.brakeFault){brk.textContent='BRAKE FAULT — CIRCUIT '+d.brakeFault;brk.style.display='block';}
+  else{brk.style.display='none';}
  }catch(e){}
 }
 setInterval(tick,400); tick();
