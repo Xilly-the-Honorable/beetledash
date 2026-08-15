@@ -39,6 +39,15 @@ static void dummy_provider(GaugeData *d) {
   d->fix = true;
   strcpy(d->clock, "12:34");
   strcpy(d->magName, "demo");
+  // Brake demo: lamps pulse alternately (2 s each), and a fake C1 fault is
+  // staged during seconds 15-45 of every minute — raises the overlay, lets you
+  // acknowledge to the banner, then drops (as if cleared) and re-stages next
+  // minute to exercise the re-raise path.
+  int phase = ((int)t) % 4;
+  d->brake1 = (phase < 2);
+  d->brake2 = (phase >= 2);
+  int cycle = ((int)t) % 60;
+  d->brakeFault = (cycle >= 15 && cycle < 45) ? BRAKE_FAULT_C1 : BRAKE_FAULT_NONE;
 }
 #endif
 

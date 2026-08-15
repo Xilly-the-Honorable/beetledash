@@ -25,6 +25,21 @@ static float fuelEMA = -1, voltEMA = -1;   // smoothing state
 
 // Dual-circuit brake monitor (V4): hysteresis state of the two switch taps.
 static bool brakeSw1 = false, brakeSw2 = false;
+static uint8_t brakeFault = BRAKE_FAULT_NONE;      // latched by brakeFaultUpdate()
+static volatile bool brakeClearReq = false;        // set by UI core, applied here
+
+// Pure fault detector, unit-testable: XOR of the two switches sustained
+// >= BRAKE_XOR_MS latches the LOW (failed) side. Never auto-clears — a failure
+// is only observable while braking, so the verdict must outlive the pedal press.
+static uint8_t brakeFaultUpdate(uint8_t current, bool sw1, bool sw2, uint32_t nowMs)
+{
+  static uint32_t xorSince = 0;
+  if (sw1 == sw2) { xorSince = 0; return current; }
+  if (xorSince == 0) { xorSince = nowMs; return current; }
+  if (nowMs - xorSince >= BRAKE_XOR_MS)
+    return sw1 ? BRAKE_FAULT_C2 : BRAKE_FAULT_C1;  // the low side failed
+  return current;
+}
 
 // Shared snapshot for the UI core — single writer (this task), single reader (LVGL).
 static GaugeData shared;
@@ -161,6 +176,7 @@ static void updateAnalog() {
   I2C_Unlock();
   brakeSw1 = brakeSw1 ? (vB1 > BRAKE_V_CLR) : (vB1 > BRAKE_V_SET);
   brakeSw2 = brakeSw2 ? (vB2 > BRAKE_V_CLR) : (vB2 > BRAKE_V_SET);
+  brakeFault = brakeFaultUpdate(brakeFault, brakeSw1, brakeSw2, millis());
 #endif
 }
 
@@ -296,7 +312,7 @@ static void publishData() {
   d.fix        = gpsFix;
   d.brake1     = brakeSw1;
   d.brake2     = brakeSw2;
-  d.brakeFault = BRAKE_FAULT_NONE;   // fault latch lands in the next milestone
+  d.brakeFault = brakeFault;
   updateClock(d.clock);
   strncpy(d.magName, magAddr == 0x0D ? "QMC5883L" : magAddr == 0x1E ? "HMC5883L" :
                      magIsIST ? "IST8310" : "none", sizeof(d.magName));
@@ -311,6 +327,12 @@ void Gauge_GetData(GaugeData *out) {
   taskEXIT_CRITICAL(&sharedMux);
 }
 
+// Called from the UI core (3 s long-press on the fault banner). Applied by the
+// sensor task on its next cycle; a genuine failure re-latches on the next brake.
+void Sensors_ClearBrakeFault(void) {
+  brakeClearReq = true;
+}
+
 // ============================================================
 //  Core-0 task
 // ============================================================
@@ -321,6 +343,7 @@ static void sensorTask(void *param) {
     if (millis() - tSensor > 200) {  // sensors + compass at ~5 Hz
       tSensor = millis();
       updateAnalog();
+      if (brakeClearReq) { brakeClearReq = false; brakeFault = BRAKE_FAULT_NONE; }
       updateHeading();
       publishData();
     }
