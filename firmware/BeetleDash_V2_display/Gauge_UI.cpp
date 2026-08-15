@@ -33,7 +33,7 @@ extern const lv_img_dsc_t beetle_front_worried; // beetle_front_worried.c (low-f
 #define BEZEL_W       8          // chrome ring width
 #define BEZEL_SHD_W   6          // shadow ring width
 
-#define SCREEN_COUNT 5
+#define SCREEN_COUNT 6
 
 static gauge_data_provider_t dataProvider = NULL;
 
@@ -58,6 +58,8 @@ static lv_obj_t *clockMeter, *clockValue, *clockSub;
 static lv_meter_indicator_t *clockHourHand, *clockMinHand;
 // Compass screen (aviation direction indicator)
 static lv_obj_t *compassCard, *compassReadout;
+// Brakes screen (dual-circuit status)
+static lv_obj_t *brakeLamp1, *brakeLamp2, *brakeVerdict, *brakeVerdictLabel, *brakeSubLabel;
 
 static const char *CARDINALS[8] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
 
@@ -476,6 +478,39 @@ static void build_compass(lv_obj_t *tile)
   make_wordmark(tile);
 }
 
+// Dual-circuit brake status: two vintage "idiot light" lamps (lit while that
+// circuit has pressure — pressing the pedal lights both, the built-in self-test)
+// plus a big OK / NOT OK verdict lamp for the latched-fault state.
+static lv_obj_t *make_lamp(lv_obj_t *tile, lv_coord_t d, lv_coord_t x, lv_coord_t y)
+{
+  lv_obj_t *lamp = make_circle(tile, d, COL_HUB_DARK);
+  lv_obj_set_style_border_width(lamp, 4, 0);
+  lv_obj_set_style_border_color(lamp, lv_color_hex(COL_HUB_SILVER), 0);  // chrome rim
+  lv_obj_align(lamp, LV_ALIGN_CENTER, x, y);
+  return lamp;
+}
+
+static void build_brakes(lv_obj_t *tile)
+{
+  make_bezel(tile);
+  make_caption(tile, "BRAKES", LV_ALIGN_TOP_MID, 0, 56);
+
+  make_label(tile, &lv_font_montserrat_24, COL_CREAM, LV_ALIGN_CENTER, -70, -130, "C1");
+  make_label(tile, &lv_font_montserrat_24, COL_CREAM, LV_ALIGN_CENTER,  70, -130, "C2");
+  brakeLamp1 = make_lamp(tile, 96, -70, -55);
+  brakeLamp2 = make_lamp(tile, 96,  70, -55);
+
+  brakeVerdict = make_lamp(tile, 124, 0, 80);
+  lv_obj_set_style_bg_color(brakeVerdict, lv_color_hex(COL_GREEN), 0);
+  brakeVerdictLabel = make_label(brakeVerdict, &lv_font_montserrat_24, COL_CREAM,
+                                 LV_ALIGN_CENTER, 0, 0, "OK");
+
+  // Dual-use line: faint self-test hint normally, red fault name when latched
+  brakeSubLabel = make_label(tile, &lv_font_montserrat_16, COL_FAINT,
+                             LV_ALIGN_CENTER, 0, 152, "press pedal to test");
+  make_wordmark(tile);
+}
+
 // ============================================================
 //  Brake fault alert (V4) — full-screen overlay + acknowledged banner.
 //  Lives on lv_layer_top() so it superposes any tile; created AFTER the page
@@ -702,6 +737,25 @@ static void refresh_cb(lv_timer_t *t)
   int card = ((int)((d.headingDeg + 22.5f) / 45.0f)) % 8;
   lv_label_set_text_fmt(compassReadout, "%d° %s", hdg, CARDINALS[card]);
 
+  // --- Brakes tile: circuit lamps + verdict ---
+  uint32_t c1 = (d.brakeFault == BRAKE_FAULT_C1) ? COL_RED
+              : (d.brake1 ? COL_YELLOW : COL_HUB_DARK);
+  uint32_t c2 = (d.brakeFault == BRAKE_FAULT_C2) ? COL_RED
+              : (d.brake2 ? COL_YELLOW : COL_HUB_DARK);
+  lv_obj_set_style_bg_color(brakeLamp1, lv_color_hex(c1), 0);
+  lv_obj_set_style_bg_color(brakeLamp2, lv_color_hex(c2), 0);
+  if (d.brakeFault != BRAKE_FAULT_NONE) {
+    lv_obj_set_style_bg_color(brakeVerdict, lv_color_hex(COL_RED), 0);
+    lv_label_set_text(brakeVerdictLabel, "NOT OK");
+    lv_label_set_text_fmt(brakeSubLabel, "C%d FAILED", d.brakeFault);
+    lv_obj_set_style_text_color(brakeSubLabel, lv_color_hex(COL_RED), 0);
+  } else {
+    lv_obj_set_style_bg_color(brakeVerdict, lv_color_hex(COL_GREEN), 0);
+    lv_label_set_text(brakeVerdictLabel, "OK");
+    lv_label_set_text(brakeSubLabel, "press pedal to test");
+    lv_obj_set_style_text_color(brakeSubLabel, lv_color_hex(COL_FAINT), 0);
+  }
+
   // --- Brake fault alert (V4) — outranks everything on the display ---
   brake_sync(d);
 }
@@ -724,6 +778,7 @@ void Gauge_UI_Init(gauge_data_provider_t provider)
   build_volts(make_tile(2));
   build_clock(make_tile(3));
   build_compass(make_tile(4));
+  build_brakes(make_tile(5));
   build_dots();
   build_brake_alert();   // after the dots: same top layer, must cover them
 
