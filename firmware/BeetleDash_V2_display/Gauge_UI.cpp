@@ -228,7 +228,8 @@ static void build_fuel(lv_obj_t *tile)
   lv_meter_set_indicator_value(fuelMeter, fuelNeedle, 0);
 
   make_hub(tile, 56, 0, pivotY - 240, false);                 // dark cap, chrome edge
-  fuelDigital = make_label(tile, &lv_font_montserrat_20, COL_FAINT, LV_ALIGN_CENTER, 0, 20, "--%");
+  // Liters remaining — same type size/color as the RES. / 2/4 / 4/4 scale labels
+  fuelDigital = make_label(tile, &lv_font_montserrat_24, COL_CREAM, LV_ALIGN_CENTER, 0, 20, "-- L");
 
   // "FUEL LOW" alert with the worried beetle — replaces the digital % when low.
   fuelAlert = lv_obj_create(tile);
@@ -674,7 +675,7 @@ static void refresh_cb(lv_timer_t *t)
   // --- Fuel (TANK) ---
   int fuelPct = (int)(d.fuelPct + 0.5f);
   lv_meter_set_indicator_value(fuelMeter, fuelNeedle, fuelPct);
-  lv_label_set_text_fmt(fuelDigital, "%d%%", fuelPct);
+  lv_label_set_text_fmt(fuelDigital, "%d L", (int)(d.fuelPct * FUEL_TANK_LITERS / 100.0f + 0.5f));
 
   // Low-fuel alert swaps in for the digital % (guarded: don't re-invalidate)
   bool low = d.fuelPct < FUEL_ALERT_BELOW;
