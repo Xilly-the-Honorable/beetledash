@@ -6,6 +6,7 @@
 
 extern const lv_img_dsc_t beetle_icon;          // beetle_icon.c (A8 silhouette, recolored at runtime)
 extern const lv_img_dsc_t beetle_front_worried; // beetle_front_worried.c (low-fuel alert mascot)
+extern const lv_img_dsc_t beetle_lightning;     // beetle_lightning.c (low-voltage alert mascot)
 
 // ---------- Palette: 1965 VW/VDO instrument family (docs/V3_vintage_ui_brief.md §0) ----------
 #define COL_FACE      0x141414   // matte near-black gauge face
@@ -51,7 +52,7 @@ static lv_meter_indicator_t *fuelNeedle;
 static lv_obj_t *speedMeter, *speedDigital, *speedSats;
 static lv_meter_indicator_t *speedNeedle;
 // Volts screen (VDO voltmeter)
-static lv_obj_t *voltMeter, *voltDigital;
+static lv_obj_t *voltMeter, *voltDigital, *voltAlert;
 static lv_meter_indicator_t *voltNeedle;
 // Clock screen (vintage VDO dash clock)
 static lv_obj_t *clockMeter, *clockValue, *clockSub;
@@ -344,6 +345,32 @@ static void build_volts(lv_obj_t *tile)
   // Live digital readout under the hub — hard requirement.
   voltDigital = make_label(tile, &lv_font_montserrat_28, COL_CREAM, LV_ALIGN_CENTER, 0, 150, "--.-");
   make_label(tile, &lv_font_montserrat_14, COL_FAINT, LV_ALIGN_CENTER, 52, 154, "V");
+
+  // "VOLTS LOW" alert: yellow panel, dark text, lightning-struck beetle.
+  // Suppressed for the first minute after boot (startup voltage sag).
+  voltAlert = lv_obj_create(tile);
+  lv_obj_set_size(voltAlert, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_style_bg_color(voltAlert, lv_color_hex(COL_YELLOW), 0);
+  lv_obj_set_style_bg_opa(voltAlert, LV_OPA_COVER, 0);
+  lv_obj_set_style_radius(voltAlert, 18, 0);
+  lv_obj_set_style_border_width(voltAlert, 0, 0);
+  lv_obj_set_style_pad_all(voltAlert, 14, 0);
+  lv_obj_set_style_pad_column(voltAlert, 14, 0);
+  lv_obj_set_flex_flow(voltAlert, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(voltAlert, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_clear_flag(voltAlert, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_t *vText = lv_label_create(voltAlert);
+  lv_obj_set_style_text_font(vText, &lv_font_montserrat_32, 0);
+  lv_obj_set_style_text_color(vText, lv_color_hex(COL_FACE), 0);   // dark on yellow
+  lv_obj_set_style_text_letter_space(vText, 2, 0);
+  lv_label_set_text(vText, "VOLTS\nLOW");
+
+  lv_obj_t *struck = lv_img_create(voltAlert);
+  lv_img_set_src(struck, &beetle_lightning);
+
+  lv_obj_align(voltAlert, LV_ALIGN_CENTER, 0, -10);
+  lv_obj_add_flag(voltAlert, LV_OBJ_FLAG_HIDDEN);
   make_wordmark(tile);
 }
 
@@ -714,6 +741,13 @@ static void refresh_cb(lv_timer_t *t)
   lv_meter_set_indicator_value(voltMeter, voltNeedle, vNeedle);
   lv_label_set_text_fmt(voltDigital, "%d.%d", v10 / 10, v10 % 10);
   lv_obj_set_style_text_color(voltDigital, lv_color_hex(volt_text_color(d.battV)), 0);
+
+  // VOLTS LOW alert — ignored during the first minute (startup sag)
+  bool vlow = d.battV < VOLT_ALERT_BELOW && millis() > VOLT_ALERT_STARTUP_MS;
+  if (vlow == lv_obj_has_flag(voltAlert, LV_OBJ_FLAG_HIDDEN)) {
+    if (vlow) lv_obj_clear_flag(voltAlert, LV_OBJ_FLAG_HIDDEN);
+    else      lv_obj_add_flag(voltAlert, LV_OBJ_FLAG_HIDDEN);
+  }
 
   // --- Clock (VDO dash clock) ---
   lv_label_set_text(clockValue, d.clock);

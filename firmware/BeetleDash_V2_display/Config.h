@@ -24,6 +24,11 @@
 #define VOLT_LOW_BELOW   11.8f  // red under this
 #define VOLT_HIGH_ABOVE  14.6f  // amber over this (overcharge)
 
+// ---------- Low-voltage alert (volts screen) ----------
+#define VOLT_ALERT_BELOW      10.0f   // show the VOLTS LOW alert under this
+#define VOLT_ALERT_STARTUP_MS 60000   // suppressed for the first minute after boot
+                                      // (cranking/startup sag would false-trigger)
+
 // ---------- Compass ----------
 #define MAG_DECLINATION -13.0f  // magnetic declination, deg (NY area)
 #define GPS_HEADING_MIN_MPH 3.0f // above this speed, trust GPS course over the magnetometer

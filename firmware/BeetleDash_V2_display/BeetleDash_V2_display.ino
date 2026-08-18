@@ -32,7 +32,7 @@
 static void dummy_provider(GaugeData *d) {
   float t = millis() / 1000.0f;
   d->fuelPct = 50.0f + 50.0f * sinf(t * 0.30f);
-  d->battV = 12.8f + 2.0f * sinf(t * 0.20f);
+  d->battV = 12.8f + 3.4f * sinf(t * 0.20f);   // dips below 10 V to demo the VOLTS LOW alert
   d->speedMph = 30.0f + 30.0f * sinf(t * 0.15f);
   d->headingDeg = fmodf(t * 20.0f, 360.0f);
   d->sats = 7;
