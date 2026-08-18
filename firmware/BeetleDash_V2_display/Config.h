@@ -15,7 +15,7 @@
 #define FUEL_R_EMPTY 70.0f   // MEASURED on the sender: 70.0 ohm = empty (stock VW VDO)
 #define FUEL_R_FULL  10.9f   // MEASURED on the sender: 10.9 ohm = full
 // This VDO sender drops resistance as the tank fills; the linear map handles it.
-#define FUEL_TANK_LITERS 35.0f   // stock '65 Beetle tank — for the liters readout
+#define FUEL_TANK_LITERS 40.0f   // tank capacity — for the liters readout
 #define VOLT_R1     47000.0f // volt divider top (to +12V)
 #define VOLT_R2     10000.0f // volt divider bottom (to GND)
 #define VOLT_TRIM   1.0f     // multiply Vbatt to match a multimeter (calibration trim)
