@@ -1,5 +1,5 @@
 /*
- * BeetleDash — V2 display firmware - No demo Mode
+ * BeetleDash — V2.1 display firmware - No demo Mode
  * ------------------------------------------------------------
  * Target : Waveshare ESP32-S3-Touch-LCD-2.1 (round 480x480, ST7701 RGB, CST820 touch)
  *
