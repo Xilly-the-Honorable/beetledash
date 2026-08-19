@@ -67,6 +67,21 @@ static const char *CARDINALS[8] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
 // ============================================================
 //  Small helpers
 // ============================================================
+// Tile indices (order of make_tile calls in Gauge_UI_Init)
+#define TILE_FUEL    0
+#define TILE_SPEED   1
+#define TILE_VOLTS   2
+#define TILE_CLOCK   3
+#define TILE_COMPASS 4
+#define TILE_BRAKES  5
+
+// Alerts call this on their rising edge so the screen jumps to the gauge that
+// raised them (the user can still swipe away while the alert stays up).
+static void jump_to_tile(int idx)
+{
+  lv_obj_set_tile_id(tileview, idx, 0, LV_ANIM_OFF);
+}
+
 // Tap anywhere on a gauge -> jump to the next screen (wraps around).
 // A drag still swipes: LVGL suppresses CLICKED once a gesture turns into a scroll.
 // No animation: a single redraw beats the sluggish full-screen scroll on this panel.
@@ -630,6 +645,7 @@ static void brake_sync(const GaugeData &d)
       lv_label_set_text_fmt(brakeOverlayLine2, "CIRCUIT %d FAILED", d.brakeFault);
       lv_obj_clear_flag(brakeOverlay, LV_OBJ_FLAG_HIDDEN);
       lv_obj_add_flag(brakeBanner, LV_OBJ_FLAG_HIDDEN);
+      jump_to_tile(TILE_BRAKES);   // acknowledging lands on the BRAKES status tile
     }
     // Blink the red border ring ~1 Hz (refresh runs every 100 ms)
     static uint8_t blink = 0;
@@ -710,6 +726,7 @@ static void refresh_cb(lv_timer_t *t)
     if (low) {
       lv_obj_clear_flag(fuelAlert, LV_OBJ_FLAG_HIDDEN);
       lv_obj_add_flag(fuelDigital, LV_OBJ_FLAG_HIDDEN);
+      jump_to_tile(TILE_FUEL);
     } else {
       lv_obj_add_flag(fuelAlert, LV_OBJ_FLAG_HIDDEN);
       lv_obj_clear_flag(fuelDigital, LV_OBJ_FLAG_HIDDEN);
@@ -745,8 +762,12 @@ static void refresh_cb(lv_timer_t *t)
   // VOLTS LOW alert — ignored during the first minute (startup sag)
   bool vlow = d.battV < VOLT_ALERT_BELOW && millis() > VOLT_ALERT_STARTUP_MS;
   if (vlow == lv_obj_has_flag(voltAlert, LV_OBJ_FLAG_HIDDEN)) {
-    if (vlow) lv_obj_clear_flag(voltAlert, LV_OBJ_FLAG_HIDDEN);
-    else      lv_obj_add_flag(voltAlert, LV_OBJ_FLAG_HIDDEN);
+    if (vlow) {
+      lv_obj_clear_flag(voltAlert, LV_OBJ_FLAG_HIDDEN);
+      jump_to_tile(TILE_VOLTS);
+    } else {
+      lv_obj_add_flag(voltAlert, LV_OBJ_FLAG_HIDDEN);
+    }
   }
 
   // --- Clock (VDO dash clock) ---
