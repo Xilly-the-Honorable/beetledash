@@ -667,6 +667,94 @@ static void brake_sync(const GaugeData &d)
 }
 
 // ============================================================
+//  Boot sequence — splash, then a factory-style gauge self-test:
+//  the display tours all six screens, sweeping each needle to max and back.
+// ============================================================
+#define SPLASH_MS     1200   // wordmark splash duration
+#define BOOT_DWELL_MS  500   // per-screen dwell during the sweep tour
+
+static lv_obj_t *splash;
+
+static void build_splash(void)
+{
+  splash = lv_obj_create(lv_layer_top());
+  lv_obj_set_size(splash, LV_HOR_RES, LV_VER_RES);
+  lv_obj_set_pos(splash, 0, 0);
+  lv_obj_set_style_bg_color(splash, lv_color_hex(COL_FACE), 0);
+  lv_obj_set_style_bg_opa(splash, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(splash, 0, 0);
+  lv_obj_set_style_pad_all(splash, 0, 0);
+  lv_obj_clear_flag(splash, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(splash, LV_OBJ_FLAG_CLICKABLE);   // eat touches while booting
+  make_bezel(splash);
+
+  lv_obj_t *ic = lv_img_create(splash);
+  lv_img_set_src(ic, &beetle_icon);
+  lv_obj_set_style_img_recolor(ic, lv_color_hex(COL_ORANGE), 0);
+  lv_obj_set_style_img_recolor_opa(ic, LV_OPA_COVER, 0);
+  lv_img_set_zoom(ic, 154);                         // 200 px art -> ~120 px
+  lv_obj_align(ic, LV_ALIGN_CENTER, 0, -70);
+
+  lv_obj_t *word = make_label(splash, &lv_font_montserrat_32, COL_CREAM,
+                              LV_ALIGN_CENTER, 0, 46, "BEETLEDASH");
+  lv_obj_set_style_text_letter_space(word, 8, 0);
+  make_label(splash, &lv_font_montserrat_16, COL_SAGE, LV_ALIGN_CENTER, 0, 96, "V2.1");
+}
+
+// Runs from refresh_cb until it returns false; drives the visible tile's
+// gauge with a 0 -> max -> 0 triangle sweep (compass spins a full turn,
+// brake lamps flash) — the classic ignition needle test.
+static bool boot_sequence(void)
+{
+  static uint32_t t0 = 0;
+  static int lastIdx = -1;
+  uint32_t now = millis();
+  if (t0 == 0) t0 = now;
+  uint32_t e = now - t0;
+
+  if (e < SPLASH_MS) return true;
+  if (!lv_obj_has_flag(splash, LV_OBJ_FLAG_HIDDEN))
+    lv_obj_add_flag(splash, LV_OBJ_FLAG_HIDDEN);
+
+  uint32_t te = e - SPLASH_MS;
+  int idx = te / BOOT_DWELL_MS;
+  if (idx >= SCREEN_COUNT) {
+    jump_to_tile(TILE_FUEL);
+    return false;                     // boot done, live data takes over
+  }
+  if (idx != lastIdx) { lastIdx = idx; jump_to_tile(idx); }
+
+  float p = (te % BOOT_DWELL_MS) / (float)BOOT_DWELL_MS;         // 0..1 in dwell
+  float tri = (p < 0.5f) ? p * 2.0f : (1.0f - p) * 2.0f;         // 0 -> 1 -> 0
+
+  switch (idx) {
+    case TILE_FUEL:
+      lv_meter_set_indicator_value(fuelMeter, fuelNeedle, (int)(tri * 100));
+      break;
+    case TILE_SPEED:
+      lv_meter_set_indicator_value(speedMeter, speedNeedle, (int)(tri * 80));
+      break;
+    case TILE_VOLTS:
+      lv_meter_set_indicator_value(voltMeter, voltNeedle, 80 + (int)(tri * 80));
+      break;
+    case TILE_CLOCK:
+      lv_meter_set_indicator_value(clockMeter, clockMinHand, (int)(tri * 60));
+      lv_meter_set_indicator_value(clockMeter, clockHourHand, (int)(tri * 720));
+      break;
+    case TILE_COMPASS:
+      lv_img_set_angle(compassCard, (int)(p * 3600.0f) % 3600);  // one full spin
+      break;
+    case TILE_BRAKES: {
+      uint32_t lamp = (tri > 0.5f) ? COL_YELLOW : COL_HUB_DARK;
+      lv_obj_set_style_bg_color(brakeLamp1, lv_color_hex(lamp), 0);
+      lv_obj_set_style_bg_color(brakeLamp2, lv_color_hex(lamp), 0);
+      break;
+    }
+  }
+  return true;
+}
+
+// ============================================================
 //  Page dots
 // ============================================================
 static void update_dots(int active)
@@ -711,6 +799,13 @@ static void build_dots(void)
 // ============================================================
 static void refresh_cb(lv_timer_t *t)
 {
+  // Ignition self-test runs first; alerts and live data wait until it's done.
+  static bool booting = true;
+  if (booting) {
+    booting = boot_sequence();
+    if (booting) return;
+  }
+
   if (!dataProvider) return;
   GaugeData d;
   dataProvider(&d);
@@ -837,6 +932,7 @@ void Gauge_UI_Init(gauge_data_provider_t provider)
   build_brakes(make_tile(5));
   build_dots();
   build_brake_alert();   // after the dots: same top layer, must cover them
+  build_splash();        // topmost: visible from the first frame
 
   lv_timer_create(refresh_cb, 100, NULL);   // ~10 Hz UI refresh from the data provider
 }
