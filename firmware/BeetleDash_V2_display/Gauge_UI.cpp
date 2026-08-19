@@ -392,49 +392,71 @@ static void build_volts(lv_obj_t *tile)
   make_wordmark(tile);
 }
 
-// Vintage VDO dash clock: cream analog hands, 12/3/6/9 numerals, small digital
-// HH:MM under the hub. Minute scale 0–60; hour hand rides a hidden 0–720 scale.
-static void clock_tick_label_cb(lv_event_t *e)
-{
-  lv_obj_draw_part_dsc_t *dsc = lv_event_get_draw_part_dsc(e);
-  if (dsc->type != LV_METER_DRAW_PART_TICK || dsc->text == NULL) return;
-  switch (dsc->value) {
-    case 0:  dsc->text = (char *)"12"; break;
-    case 15: dsc->text = (char *)"3";  break;
-    case 30: dsc->text = (char *)"6";  break;
-    case 45: dsc->text = (char *)"9";  break;
-    default: dsc->text = (char *)"";   break;   // 5-minute marks: tick only
-  }
-}
+// Kienzle-style VW dash clock (per reference photos): black face, light ring
+// band carrying the hour markers, big 12/3/6/9 numerals over the ring, small
+// outline squares at the other hours, brass hands from a small hub, and the
+// digital HH:MM where the original prints "8 TAGE".
+#define COL_KIENZLE_RING 0x767B72   // sage-silver ring band
+#define COL_BRASS        0xC5A05A   // gold-brass hands
 
 static void build_clock(lv_obj_t *tile)
 {
   make_bezel(tile);
 
+  // Ring band (annulus r150..r195): transparent circle with a thick border
+  lv_obj_t *ring = lv_obj_create(tile);
+  lv_obj_set_size(ring, 390, 390);
+  lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(ring, 45, 0);
+  lv_obj_set_style_border_color(ring, lv_color_hex(COL_KIENZLE_RING), 0);
+  lv_obj_clear_flag(ring, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_center(ring);
+
+  // Small outline-square markers at the non-quarter hours, mid-ring (r=172)
+  for (int h = 1; h < 12; h++) {
+    if (h % 3 == 0) continue;
+    float a = h * 30.0f * (float)M_PI / 180.0f;
+    lv_obj_t *sq = lv_obj_create(tile);
+    lv_obj_set_size(sq, 12, 12);
+    lv_obj_set_style_bg_color(sq, lv_color_hex(COL_FACE), 0);
+    lv_obj_set_style_bg_opa(sq, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(sq, 2, 0);
+    lv_obj_set_style_border_color(sq, lv_color_hex(COL_CREAM), 0);
+    lv_obj_set_style_radius(sq, 0, 0);
+    lv_obj_clear_flag(sq, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(sq, LV_ALIGN_CENTER,
+                 (lv_coord_t)lroundf(172.0f * sinf(a)),
+                 (lv_coord_t)lroundf(-172.0f * cosf(a)));
+  }
+
+  // Big quarter numerals over the ring (the real 3/9 lie sideways; ours are upright)
+  make_label(tile, &lv_font_montserrat_40, COL_CREAM, LV_ALIGN_CENTER,    0, -170, "12");
+  make_label(tile, &lv_font_montserrat_40, COL_CREAM, LV_ALIGN_CENTER,  170,    0, "3");
+  make_label(tile, &lv_font_montserrat_40, COL_CREAM, LV_ALIGN_CENTER,    0,  170, "6");
+  make_label(tile, &lv_font_montserrat_40, COL_CREAM, LV_ALIGN_CENTER, -170,    0, "9");
+
+  // Meter only carries the two hands (scales invisible)
   clockMeter = make_bare_meter(tile, 430);
   lv_obj_center(clockMeter);
-
   lv_meter_scale_t *scMin = lv_meter_add_scale(clockMeter);
   lv_meter_set_scale_range(clockMeter, scMin, 0, 60, 360, 270);   // 0 (=12) at the top
-  lv_meter_set_scale_ticks(clockMeter, scMin, 61, 2, 10, lv_color_hex(COL_FAINT));      // minutes
-  lv_meter_set_scale_major_ticks(clockMeter, scMin, 5, 5, 22, lv_color_hex(COL_CREAM), 26); // 5-min
-  lv_obj_set_style_text_font(clockMeter, &lv_font_montserrat_28, LV_PART_TICKS);
-  lv_obj_set_style_text_color(clockMeter, lv_color_hex(COL_CREAM), LV_PART_TICKS);
-  lv_obj_add_event_cb(clockMeter, clock_tick_label_cb, LV_EVENT_DRAW_PART_BEGIN, NULL);
-
-  // Tickless half-day scale so the hour hand moves smoothly between numerals
-  lv_meter_scale_t *scHour = lv_meter_add_scale(clockMeter);
+  lv_meter_set_scale_ticks(clockMeter, scMin, 0, 0, 0, lv_color_black());
+  lv_meter_scale_t *scHour = lv_meter_add_scale(clockMeter);     // smooth hour hand
   lv_meter_set_scale_range(clockMeter, scHour, 0, 720, 360, 270);
   lv_meter_set_scale_ticks(clockMeter, scHour, 0, 0, 0, lv_color_black());
 
-  clockMinHand  = lv_meter_add_needle_line(clockMeter, scMin,  5, lv_color_hex(COL_CREAM), -26);
-  clockHourHand = lv_meter_add_needle_line(clockMeter, scHour, 8, lv_color_hex(COL_CREAM), -82);
+  clockMinHand  = lv_meter_add_needle_line(clockMeter, scMin,  5, lv_color_hex(COL_BRASS), -26);
+  clockHourHand = lv_meter_add_needle_line(clockMeter, scHour, 8, lv_color_hex(COL_BRASS), -82);
   lv_meter_set_indicator_value(clockMeter, clockMinHand, 0);
   lv_meter_set_indicator_value(clockMeter, clockHourHand, 0);
 
-  make_hub(tile, 44, 0, 0, false);
-  clockValue = make_label(tile, &lv_font_montserrat_28, COL_CREAM, LV_ALIGN_CENTER, 0, 118, "--:--");
-  clockSub = make_label(tile, &lv_font_montserrat_14, COL_FAINT, LV_ALIGN_CENTER, 0, 152, "waiting for GPS time");
+  make_hub(tile, 32, 0, 0, false);
+
+  // Digital HH:MM in the "8 TAGE" spot, status line tucked under it
+  clockValue = make_label(tile, &lv_font_montserrat_20, COL_CREAM, LV_ALIGN_CENTER, 0, 92, "--:--");
+  lv_obj_set_style_text_letter_space(clockValue, 3, 0);
+  clockSub = make_label(tile, &lv_font_montserrat_14, COL_FAINT, LV_ALIGN_CENTER, 0, 126, "waiting for GPS time");
   make_wordmark(tile);
 }
 
