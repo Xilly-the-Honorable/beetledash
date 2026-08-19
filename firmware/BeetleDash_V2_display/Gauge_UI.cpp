@@ -48,8 +48,7 @@ static lv_obj_t *fuelEyeL, *fuelEyeR;    // blinking headlight overlays on the m
 static lv_meter_indicator_t *fuelNeedle;
 static lv_meter_scale_t *fuelScaleL, *fuelScaleGal;
 #define COL_MINT 0xA8D4A0   // pale Störk green (markings, numerals, needle)
-#define FUEL_ALERT_BELOW 25.0f   // show the "FUEL LOW" alert under this %
-#define COL_ALERT 0xE0452F       // brighter warning red-orange (alert only)
+#define FUEL_ALERT_BELOW 25.0f   // show the "LOW FUEL" alert under this %
 #define COL_LAMP  0xFFD84A       // lit-headlight yellow (alert only)
 // Speed screen (VDO speedometer)
 static lv_obj_t *speedMeter, *speedDigital, *speedSats;
@@ -252,22 +251,25 @@ static void build_fuel(lv_obj_t *tile)
   // Liters remaining, below the hub
   fuelDigital = make_label(tile, &lv_font_montserrat_24, COL_MINT, LV_ALIGN_CENTER, 0, 78, "-- L");
 
-  // "FUEL LOW" alert with the worried beetle — replaces the digital % when low.
+  // "LOW FUEL" alert: yellow panel, dark text, worried beetle — replaces the
+  // digital liters readout when low (same styling as the low-voltage alert).
   fuelAlert = lv_obj_create(tile);
   lv_obj_set_size(fuelAlert, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-  lv_obj_set_style_bg_opa(fuelAlert, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_bg_color(fuelAlert, lv_color_hex(COL_YELLOW), 0);
+  lv_obj_set_style_bg_opa(fuelAlert, LV_OPA_COVER, 0);
+  lv_obj_set_style_radius(fuelAlert, 18, 0);
   lv_obj_set_style_border_width(fuelAlert, 0, 0);
-  lv_obj_set_style_pad_all(fuelAlert, 0, 0);
-  lv_obj_set_style_pad_column(fuelAlert, 16, 0);
+  lv_obj_set_style_pad_all(fuelAlert, 14, 0);
+  lv_obj_set_style_pad_column(fuelAlert, 14, 0);
   lv_obj_set_flex_flow(fuelAlert, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(fuelAlert, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_clear_flag(fuelAlert, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
 
   lv_obj_t *alertText = lv_label_create(fuelAlert);
   lv_obj_set_style_text_font(alertText, &lv_font_montserrat_32, 0);
-  lv_obj_set_style_text_color(alertText, lv_color_hex(COL_ALERT), 0);
+  lv_obj_set_style_text_color(alertText, lv_color_hex(COL_FACE), 0);   // dark on yellow
   lv_obj_set_style_text_letter_space(alertText, 2, 0);
-  lv_label_set_text(alertText, "FUEL\nLOW");
+  lv_label_set_text(alertText, "LOW\nFUEL");
 
   lv_obj_t *worried = lv_img_create(fuelAlert);
   lv_img_set_src(worried, &beetle_front_worried);
@@ -365,7 +367,7 @@ static void build_volts(lv_obj_t *tile)
   voltDigital = make_label(tile, &lv_font_montserrat_28, COL_CREAM, LV_ALIGN_CENTER, 0, 150, "--.-");
   make_label(tile, &lv_font_montserrat_14, COL_FAINT, LV_ALIGN_CENTER, 52, 154, "V");
 
-  // "VOLTS LOW" alert: yellow panel, dark text, lightning-struck beetle.
+  // "LOW VOLTAGE" alert: yellow panel, dark text, lightning-struck beetle.
   // Suppressed for the first minute after boot (startup voltage sag).
   voltAlert = lv_obj_create(tile);
   lv_obj_set_size(voltAlert, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
@@ -383,7 +385,7 @@ static void build_volts(lv_obj_t *tile)
   lv_obj_set_style_text_font(vText, &lv_font_montserrat_32, 0);
   lv_obj_set_style_text_color(vText, lv_color_hex(COL_FACE), 0);   // dark on yellow
   lv_obj_set_style_text_letter_space(vText, 2, 0);
-  lv_label_set_text(vText, "VOLTS\nLOW");
+  lv_label_set_text(vText, "LOW\nVOLTAGE");
 
   lv_obj_t *struck = lv_img_create(voltAlert);
   lv_img_set_src(struck, &beetle_lightning);
@@ -853,7 +855,7 @@ static void refresh_cb(lv_timer_t *t)
   lv_label_set_text_fmt(voltDigital, "%d.%d", v10 / 10, v10 % 10);
   lv_obj_set_style_text_color(voltDigital, lv_color_hex(volt_text_color(d.battV)), 0);
 
-  // VOLTS LOW alert — ignored during the first minute (startup sag)
+  // LOW VOLTAGE alert — ignored during the first minute (startup sag)
   bool vlow = d.battV < VOLT_ALERT_BELOW && millis() > VOLT_ALERT_STARTUP_MS;
   if (vlow == lv_obj_has_flag(voltAlert, LV_OBJ_FLAG_HIDDEN)) {
     if (vlow) {
