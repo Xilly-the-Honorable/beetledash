@@ -45,7 +45,7 @@ static lv_obj_t *dots[SCREEN_COUNT];
 // Fuel screen (Störk-style round dial, dual liters/gallons scale)
 static lv_obj_t *fuelMeter, *fuelDigital, *fuelAlert;
 static lv_obj_t *fuelEyeL, *fuelEyeR;    // blinking headlight overlays on the mascot
-static lv_meter_indicator_t *fuelNeedle;
+static lv_meter_indicator_t *fuelNeedleL, *fuelNeedleR;   // two ends of one center-pivot needle
 static lv_meter_scale_t *fuelScaleL, *fuelScaleGal;
 #define COL_MINT 0xA8D4A0   // pale Störk green (markings, numerals, needle)
 #define FUEL_ALERT_BELOW 25.0f   // show the "LOW FUEL" alert under this %
@@ -188,66 +188,81 @@ static void make_hub(lv_obj_t *tile, lv_coord_t d, lv_coord_t x, lv_coord_t y, b
 // ============================================================
 //  Screen builders
 // ============================================================
-// Störk-style fuel gauge (per reference photo): full-round dial, pale green
-// markings on black, center needle. Dual scale like a vintage dual speedo:
-// OUTER ring = liters 0-40 (with ticks), INNER ring = US gallons 0-10
-// (numerals only), angularly aligned so the one needle reads both.
-// The liters scale runs in deciliters (0-400) for a smooth needle.
+// Störk-style fuel gauge (per the dual °C/°F oil gauge reference): the needle
+// is a full diameter line pivoting at DEAD CENTER, and its two ends read two
+// mirrored half-scales — LITERS on the left (40 L at bottom-left when full,
+// 0 L at top-left) and US GALLONS on the right (full = 10.6 gal at top-right,
+// 0 at bottom-right). Implemented as two 180°-opposed needle indicators on
+// hidden scales, driven together. The visible tick scales run "reversed"
+// (values increase clockwise) so labels are rewritten in the draw callback.
 static void fuel_tick_cb(lv_event_t *e)
 {
   lv_obj_draw_part_dsc_t *dsc = lv_event_get_draw_part_dsc(e);
-  if (dsc->type != LV_METER_DRAW_PART_TICK) return;
+  if (dsc->type != LV_METER_DRAW_PART_TICK || !dsc->text) return;
 
-  if (dsc->sub_part_ptr == fuelScaleGal) {
-    // Inner gallons ring: smaller numerals
-    if (dsc->label_dsc) dsc->label_dsc->font = &lv_font_montserrat_16;
-  } else if (dsc->text) {
-    // Outer ring: deciliters -> liters labels (0, 10, 20, 30, 40)
-    static char buf[8];
-    lv_snprintf(buf, sizeof(buf), "%d", (int)(dsc->value / 10));
-    dsc->text = buf;
-  }
+  static char buf[8];
+  if (dsc->sub_part_ptr == fuelScaleGal)
+    lv_snprintf(buf, sizeof(buf), "%d", 10 - (int)dsc->value / 2);   // half-gallon units
+  else
+    lv_snprintf(buf, sizeof(buf), "%d", 40 - (int)dsc->value);       // liters
+  dsc->text = buf;
 }
 
 static void build_fuel(lv_obj_t *tile)
 {
   make_bezel(tile);
   lv_obj_t *cap = make_label(tile, &lv_font_montserrat_24, COL_MINT,
-                             LV_ALIGN_CENTER, 0, -150, "TANK");
+                             LV_ALIGN_CENTER, 0, -120, "TANK");
   lv_obj_set_style_text_letter_space(cap, 6, 0);
 
   fuelMeter = make_bare_meter(tile, 430);
   lv_obj_center(fuelMeter);
 
-  // Outer: liters (deciliters internally), 270° sweep with the gap at the bottom
-  fuelScaleL = lv_meter_add_scale(fuelMeter);
-  lv_meter_set_scale_range(fuelMeter, fuelScaleL, 0, 400, 270, 135);
-  lv_meter_set_scale_ticks(fuelMeter, fuelScaleL, 17, 3, 14, lv_color_hex(COL_MINT));        // every 2.5 L
-  lv_meter_set_scale_major_ticks(fuelMeter, fuelScaleL, 4, 5, 24, lv_color_hex(COL_MINT), 22); // every 10 L
   lv_obj_set_style_text_font(fuelMeter, &lv_font_montserrat_24, LV_PART_TICKS);
   lv_obj_set_style_text_color(fuelMeter, lv_color_hex(COL_MINT), LV_PART_TICKS);
   lv_obj_add_event_cb(fuelMeter, fuel_tick_cb, LV_EVENT_DRAW_PART_BEGIN, NULL);
 
-  // Inner: gallons, numerals only (invisible ticks pushed the labels inward).
-  // 10 gal = 37.854 L -> 270° * 37.854/40 ≈ 255° so the rings stay aligned.
+  // LEFT half — liters. Bottom-left (135°) to top-left (225°); tick values
+  // 0..40 clockwise, labels reversed to 40..0 so 40 L sits at bottom-left.
+  // Minors every 2 L, majors every 10 L.
+  fuelScaleL = lv_meter_add_scale(fuelMeter);
+  lv_meter_set_scale_range(fuelMeter, fuelScaleL, 0, 40, 90, 135);
+  lv_meter_set_scale_ticks(fuelMeter, fuelScaleL, 21, 3, 14, lv_color_hex(COL_MINT));
+  lv_meter_set_scale_major_ticks(fuelMeter, fuelScaleL, 5, 5, 24, lv_color_hex(COL_MINT), 24);
+
+  // RIGHT half — gallons, whole numbers only. Full tank = 10.6 gal at
+  // top-right (315°), empty at bottom-right (45°). The integer ticks 10..0
+  // occupy 90° * 10/10.6 ≈ 85°, starting at 320° (the "10" mark sits just
+  // shy of where the full needle points). Values in half-gallons (0..20
+  // clockwise), labels reversed. Minors every 0.5 gal, majors every 2 gal.
   fuelScaleGal = lv_meter_add_scale(fuelMeter);
-  lv_meter_set_scale_range(fuelMeter, fuelScaleGal, 0, 10, 255, 135);
-  lv_meter_set_scale_ticks(fuelMeter, fuelScaleGal, 11, 0, 0, lv_color_hex(COL_MINT));
-  lv_meter_set_scale_major_ticks(fuelMeter, fuelScaleGal, 2, 0, 0, lv_color_hex(COL_MINT), 64);
+  lv_meter_set_scale_range(fuelMeter, fuelScaleGal, 0, 20, 85, 320);
+  lv_meter_set_scale_ticks(fuelMeter, fuelScaleGal, 21, 3, 14, lv_color_hex(COL_MINT));
+  lv_meter_set_scale_major_ticks(fuelMeter, fuelScaleGal, 4, 5, 24, lv_color_hex(COL_MINT), 24);
 
-  // Subtle reserve mark on the outer ring (first ~12% ≈ under 5 L)
+  // Red reserve wedge on the liters side (last ~12% ≈ under 5 L, near top-left)
   lv_meter_indicator_t *reserve = lv_meter_add_arc(fuelMeter, fuelScaleL, 6, lv_color_hex(COL_RED), 0);
-  lv_meter_set_indicator_start_value(fuelMeter, reserve, 0);
-  lv_meter_set_indicator_end_value(fuelMeter, reserve, 48);
+  lv_meter_set_indicator_start_value(fuelMeter, reserve, 35);
+  lv_meter_set_indicator_end_value(fuelMeter, reserve, 40);
 
-  fuelNeedle = lv_meter_add_needle_line(fuelMeter, fuelScaleL, 5, lv_color_hex(COL_MINT), -14);
-  lv_meter_set_indicator_value(fuelMeter, fuelNeedle, 0);
+  // Needle = two ends of one center-pivot line, on hidden 0..1000 (permille,
+  // empty..full reversed) scales 180° apart. Value 0 = full, 1000 = empty.
+  lv_meter_scale_t *nL = lv_meter_add_scale(fuelMeter);
+  lv_meter_set_scale_range(fuelMeter, nL, 0, 1000, 90, 135);   // full: bottom-left
+  lv_meter_set_scale_ticks(fuelMeter, nL, 0, 0, 0, lv_color_black());
+  lv_meter_scale_t *nR = lv_meter_add_scale(fuelMeter);
+  lv_meter_set_scale_range(fuelMeter, nR, 0, 1000, 90, 315);   // full: top-right
+  lv_meter_set_scale_ticks(fuelMeter, nR, 0, 0, 0, lv_color_black());
+  fuelNeedleL = lv_meter_add_needle_line(fuelMeter, nL, 5, lv_color_hex(COL_MINT), -14);
+  fuelNeedleR = lv_meter_add_needle_line(fuelMeter, nR, 5, lv_color_hex(COL_MINT), -14);
+  lv_meter_set_indicator_value(fuelMeter, fuelNeedleL, 1000);
+  lv_meter_set_indicator_value(fuelMeter, fuelNeedleR, 1000);
 
   make_hub(tile, 44, 0, 0, false);                            // black cap, chrome edge
 
-  // Units in the bottom gap, near each ring's end
-  make_label(tile, &lv_font_montserrat_16, COL_MINT, LV_ALIGN_CENTER, -70, 148, "L");
-  make_label(tile, &lv_font_montserrat_14, COL_FAINT, LV_ALIGN_CENTER, 70, 148, "gal");
+  // Unit labels under each half-scale, like the °C / °F on the original
+  make_label(tile, &lv_font_montserrat_16, COL_MINT, LV_ALIGN_CENTER, -118, 148, "L");
+  make_label(tile, &lv_font_montserrat_16, COL_MINT, LV_ALIGN_CENTER, 118, 148, "GAL");
   // Liters remaining, below the hub
   fuelDigital = make_label(tile, &lv_font_montserrat_24, COL_MINT, LV_ALIGN_CENTER, 0, 78, "-- L");
 
@@ -699,7 +714,7 @@ static void build_splash(void)
   lv_obj_t *word = make_label(splash, &lv_font_montserrat_32, COL_CREAM,
                               LV_ALIGN_CENTER, 0, 46, "BEETLEDASH");
   lv_obj_set_style_text_letter_space(word, 8, 0);
-  make_label(splash, &lv_font_montserrat_16, COL_SAGE, LV_ALIGN_CENTER, 0, 96, "V2.1");
+  make_label(splash, &lv_font_montserrat_16, COL_SAGE, LV_ALIGN_CENTER, 0, 96, "V2.2");
 }
 
 // Runs from refresh_cb until it returns false; drives the visible tile's
@@ -729,9 +744,12 @@ static bool boot_sequence(void)
   float tri = (p < 0.5f) ? p * 2.0f : (1.0f - p) * 2.0f;         // 0 -> 1 -> 0
 
   switch (idx) {
-    case TILE_FUEL:
-      lv_meter_set_indicator_value(fuelMeter, fuelNeedle, (int)(tri * 400));  // deciliter scale
+    case TILE_FUEL: {
+      int v = 1000 - (int)(tri * 1000);   // hidden scales: 0 = full, 1000 = empty
+      lv_meter_set_indicator_value(fuelMeter, fuelNeedleL, v);
+      lv_meter_set_indicator_value(fuelMeter, fuelNeedleR, v);
       break;
+    }
     case TILE_SPEED:
       lv_meter_set_indicator_value(speedMeter, speedNeedle, (int)(tri * 80));
       break;
@@ -811,9 +829,12 @@ static void refresh_cb(lv_timer_t *t)
   GaugeData d;
   dataProvider(&d);
 
-  // --- Fuel (Störk dial): needle runs on the deciliter scale (0-400) ---
-  lv_meter_set_indicator_value(fuelMeter, fuelNeedle,
-                               (int)(d.fuelPct * FUEL_TANK_LITERS / 10.0f + 0.5f));
+  // --- Fuel (Störk dial): both needle ends on hidden permille scales
+  // (0 = full, 1000 = empty), kept 180° apart ---
+  int fuelV = 1000 - (int)(d.fuelPct * 10.0f + 0.5f);
+  if (fuelV < 0) fuelV = 0; else if (fuelV > 1000) fuelV = 1000;
+  lv_meter_set_indicator_value(fuelMeter, fuelNeedleL, fuelV);
+  lv_meter_set_indicator_value(fuelMeter, fuelNeedleR, fuelV);
   lv_label_set_text_fmt(fuelDigital, "%d L", (int)(d.fuelPct * FUEL_TANK_LITERS / 100.0f + 0.5f));
 
   // Low-fuel alert swaps in for the digital % (guarded: don't re-invalidate)
