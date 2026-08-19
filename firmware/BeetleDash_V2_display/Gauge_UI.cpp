@@ -7,6 +7,7 @@
 extern const lv_img_dsc_t beetle_icon;          // beetle_icon.c (A8 silhouette, recolored at runtime)
 extern const lv_img_dsc_t beetle_front_worried; // beetle_front_worried.c (low-fuel alert mascot)
 extern const lv_img_dsc_t beetle_lightning;     // beetle_lightning.c (low-voltage alert mascot)
+extern const lv_img_dsc_t kienzle_face;         // kienzle_face.c (pre-rendered Kienzle clock face)
 
 // ---------- Palette: 1965 VW/VDO instrument family (docs/V3_vintage_ui_brief.md §0) ----------
 #define COL_FACE      0x141414   // matte near-black gauge face
@@ -392,49 +393,20 @@ static void build_volts(lv_obj_t *tile)
   make_wordmark(tile);
 }
 
-// Kienzle-style VW dash clock (per reference photos): black face, light ring
-// band carrying the hour markers, big 12/3/6/9 numerals over the ring, small
-// outline squares at the other hours, brass hands from a small hub, and the
-// digital HH:MM where the original prints "8 TAGE".
-#define COL_KIENZLE_RING 0x767B72   // sage-silver ring band
-#define COL_BRASS        0xC5A05A   // gold-brass hands
+// Kienzle-style VW dash clock: the face (ring band, sideways 3/9, deco
+// numerals, square hour markers) is a pre-rendered bitmap generated from the
+// reference photos — LVGL can't rotate label glyphs, and the sideways quarter
+// numerals are the signature of this clock. Hands, hub and the digital HH:MM
+// (in the "8 TAGE" spot) are still drawn live on top.
+#define COL_BRASS 0xC5A05A   // gold-brass hands
 
 static void build_clock(lv_obj_t *tile)
 {
   make_bezel(tile);
 
-  // Ring band (annulus r150..r195): transparent circle with a thick border
-  lv_obj_t *ring = lv_obj_create(tile);
-  lv_obj_set_size(ring, 390, 390);
-  lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(ring, 45, 0);
-  lv_obj_set_style_border_color(ring, lv_color_hex(COL_KIENZLE_RING), 0);
-  lv_obj_clear_flag(ring, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_center(ring);
-
-  // Small outline-square markers at the non-quarter hours, mid-ring (r=172)
-  for (int h = 1; h < 12; h++) {
-    if (h % 3 == 0) continue;
-    float a = h * 30.0f * (float)M_PI / 180.0f;
-    lv_obj_t *sq = lv_obj_create(tile);
-    lv_obj_set_size(sq, 12, 12);
-    lv_obj_set_style_bg_color(sq, lv_color_hex(COL_FACE), 0);
-    lv_obj_set_style_bg_opa(sq, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(sq, 2, 0);
-    lv_obj_set_style_border_color(sq, lv_color_hex(COL_CREAM), 0);
-    lv_obj_set_style_radius(sq, 0, 0);
-    lv_obj_clear_flag(sq, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align(sq, LV_ALIGN_CENTER,
-                 (lv_coord_t)lroundf(172.0f * sinf(a)),
-                 (lv_coord_t)lroundf(-172.0f * cosf(a)));
-  }
-
-  // Big quarter numerals over the ring (the real 3/9 lie sideways; ours are upright)
-  make_label(tile, &lv_font_montserrat_40, COL_CREAM, LV_ALIGN_CENTER,    0, -170, "12");
-  make_label(tile, &lv_font_montserrat_40, COL_CREAM, LV_ALIGN_CENTER,  170,    0, "3");
-  make_label(tile, &lv_font_montserrat_40, COL_CREAM, LV_ALIGN_CENTER,    0,  170, "6");
-  make_label(tile, &lv_font_montserrat_40, COL_CREAM, LV_ALIGN_CENTER, -170,    0, "9");
+  lv_obj_t *face = lv_img_create(tile);
+  lv_img_set_src(face, &kienzle_face);
+  lv_obj_center(face);
 
   // Meter only carries the two hands (scales invisible)
   clockMeter = make_bare_meter(tile, 430);
@@ -446,17 +418,19 @@ static void build_clock(lv_obj_t *tile)
   lv_meter_set_scale_range(clockMeter, scHour, 0, 720, 360, 270);
   lv_meter_set_scale_ticks(clockMeter, scHour, 0, 0, 0, lv_color_black());
 
-  clockMinHand  = lv_meter_add_needle_line(clockMeter, scMin,  5, lv_color_hex(COL_BRASS), -26);
-  clockHourHand = lv_meter_add_needle_line(clockMeter, scHour, 8, lv_color_hex(COL_BRASS), -82);
+  // Tips sized to the bitmap face: minute reaches into the ring band
+  // (~r145), hour stops short of the numerals (~r105).
+  clockMinHand  = lv_meter_add_needle_line(clockMeter, scMin,  5, lv_color_hex(COL_BRASS), -67);
+  clockHourHand = lv_meter_add_needle_line(clockMeter, scHour, 8, lv_color_hex(COL_BRASS), -110);
   lv_meter_set_indicator_value(clockMeter, clockMinHand, 0);
   lv_meter_set_indicator_value(clockMeter, clockHourHand, 0);
 
   make_hub(tile, 32, 0, 0, false);
 
-  // Digital HH:MM in the "8 TAGE" spot, status line tucked under it
-  clockValue = make_label(tile, &lv_font_montserrat_20, COL_CREAM, LV_ALIGN_CENTER, 0, 92, "--:--");
+  // Digital HH:MM in the "8 TAGE" spot; GPS status line mirrored above the hub
+  clockValue = make_label(tile, &lv_font_montserrat_20, COL_CREAM, LV_ALIGN_CENTER, 0, 88, "--:--");
   lv_obj_set_style_text_letter_space(clockValue, 3, 0);
-  clockSub = make_label(tile, &lv_font_montserrat_14, COL_FAINT, LV_ALIGN_CENTER, 0, 126, "waiting for GPS time");
+  clockSub = make_label(tile, &lv_font_montserrat_14, COL_FAINT, LV_ALIGN_CENTER, 0, -92, "waiting for GPS time");
   make_wordmark(tile);
 }
 

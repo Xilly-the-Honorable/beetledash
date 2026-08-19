@@ -16,7 +16,12 @@ param(
 
 Add-Type -AssemblyName System.Drawing
 
-$src = [System.Drawing.Bitmap]::new((Resolve-Path $In).Path)
+$srcFile = [System.Drawing.Bitmap]::new((Resolve-Path $In).Path)
+# Force 32bpp: on a 24bpp source, UnlockBits would silently discard the alpha
+# written during chroma-keying.
+$src = $srcFile.Clone([System.Drawing.Rectangle]::new(0, 0, $srcFile.Width, $srcFile.Height),
+                      [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+$srcFile.Dispose()
 
 # --- Pass 1: chroma-key magenta at full resolution ---
 $rect = [System.Drawing.Rectangle]::new(0, 0, $src.Width, $src.Height)
